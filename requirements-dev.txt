@@ -1,0 +1,20 @@
+# ARM Mac용 TensorFlow 대체
+tensorflow-macos==2.12.0
+tensorflow-metal==0.6.0
+
+numpy==1.23.5
+pandas==2.0.3
+scikit-learn==1.2.2
+lightfm @ git+https://github.com/lyst/lightfm.git@master#egg=lightfm
+
+
+pymysql==1.1.0
+scipy==1.10.1
+joblib==1.2.0
+fastapi==0.68.1
+uvicorn==0.15.0
+pydantic==1.8.2
+sqlalchemy==1.4.23
+python-dotenv==1.0.0
+mysql-connector-python==8.0.33
+tqdm==4.66.2

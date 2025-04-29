@@ -2,39 +2,50 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
 
-def preprocess_logs(logs: pd.DataFrame):
+def preprocess_logs(logs):
+    """웹 로그 데이터 전처리"""
+    # 리스트를 DataFrame으로 변환
+    df = pd.DataFrame(logs)
+    
+    # 필요한 컬럼만 선택
+    df = df[['click_path', 'tag']]
+    
+    # NaN 값 제거
+    df = df.dropna()
+    
+    # 레이블 인코딩
+    click_path_encoder = LabelEncoder()
+    tag_encoder = LabelEncoder()
+    
+    df['click_path'] = click_path_encoder.fit_transform(df['click_path'])
+    df['tag'] = tag_encoder.fit_transform(df['tag'])
+    
+    # 특성과 레이블 분리
+    X = df['click_path'].values
+    y = df['tag'].values
+    
+    return X, y, click_path_encoder, tag_encoder
+
+def apply_weight_decay(logs, decay_rate: float = 0.9):
     """
-    웹로그 데이터를 학습에 사용할 수 있는 형태로 전처리하는 함수.
-    필요한 피처를 추출하고, 범주형 데이터를 인코딩한다.
-
-    Args:
-        logs (pd.DataFrame): 웹로그 데이터.
-
-    Returns:
-        X (pd.DataFrame): 특징 데이터.
-        y (pd.Series): 레이블 데이터 (성향).
-    """
-    # 예시로 TAG와 ClickPath 기반의 피처 추출
-    logs['ClickPath'] = LabelEncoder().fit_transform(logs['ClickPath'])  # ClickPath 인코딩
-    logs['TAG'] = LabelEncoder().fit_transform(logs['TAG'])  # TAG 인코딩
-
-    # 간단히 'TAG'를 레이블로 사용하고, 나머지는 특징으로 사용
-    X = logs[['ClickPath', 'CurrentPath', 'Event']]  # 특징
-    y = logs['TAG']  # 레이블
-
-    return X, y
-
-def apply_weight_decay(data: np.array, decay_rate: float = 0.9):
-    """
-    데이터에 가중치 감소를 적용하는 함수. 최근 데이터에 더 높은 가중치를 부여.
+    로그 데이터에 시간 기반 가중치 감소를 적용하는 함수.
+    최근 데이터에 더 높은 가중치를 부여.
     
     Args:
-        data (np.array): 가중치를 적용할 데이터 배열.
+        logs (list): 로그 데이터 리스트.
         decay_rate (float): 가중치 감소 비율.
 
     Returns:
-        np.array: 가중치가 적용된 데이터 배열.
+        list: 각 로그 항목에 대한 가중치 리스트.
     """
-    weights = np.array([decay_rate ** i for i in range(len(data))])
-    weighted_data = data * weights
-    return weighted_data
+    # 타임스탬프를 기준으로 정렬
+    sorted_logs = sorted(logs, key=lambda x: x['timestamp'], reverse=True)
+    
+    # 가중치 계산
+    weights = [decay_rate ** i for i in range(len(sorted_logs))]
+    
+    # 원래 순서대로 가중치 매핑
+    weight_map = {id(log): weight for log, weight in zip(sorted_logs, weights)}
+    original_weights = [weight_map[id(log)] for log in logs]
+    
+    return original_weights
