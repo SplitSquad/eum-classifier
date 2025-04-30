@@ -195,11 +195,14 @@ class NeuralUserClassifier:
         # 결과 처리
         results = {}
         for click_path, pred in zip(df['click_path'], predictions):
-            top_indices = np.argsort(pred)[-5:][::-1]  # 상위 5개
-            results[click_path] = [
+            # 모든 태그의 점수 계산
+            all_tags = [
                 (self.tag_encoder.inverse_transform([idx])[0], float(pred[idx]))
-                for idx in top_indices
+                for idx in range(len(pred))
             ]
+            # 점수 기준 내림차순 정렬
+            all_tags.sort(key=lambda x: x[1], reverse=True)
+            results[click_path] = all_tags
         
         return results
 
