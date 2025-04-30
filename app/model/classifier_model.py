@@ -4,8 +4,8 @@ import tensorflow as tf
 from tensorflow.keras import layers, models
 from sklearn.preprocessing import LabelEncoder
 import joblib
-from db import fetch_user_logs
-from utils import preprocess_logs, apply_weight_decay
+from app.model.db import fetch_user_logs
+from app.model.utils import preprocess_logs, apply_weight_decay
 import logging
 from tqdm import tqdm
 from datetime import datetime
@@ -59,8 +59,8 @@ class GeLU(layers.Layer):
         return 0.5 * x * (1 + tf.tanh(tf.sqrt(2 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
 
 class NeuralUserClassifier:
-    def __init__(self, model_path='app/model/saved_models/classifier_model'):
-        self.model_path = model_path
+    def __init__(self, model_dir='app/model/saved_models'):
+        self.model_dir = model_dir
         self.model = None
         self.click_path_encoder = None
         self.tag_encoder = None
@@ -125,30 +125,31 @@ class NeuralUserClassifier:
     def save_model(self):
         """모델 저장"""
         logging.info("Saving model...")
-        if not os.path.exists(os.path.dirname(self.model_path)):
-            os.makedirs(os.path.dirname(self.model_path))
+        if not os.path.exists(os.path.dirname(self.model_dir)):
+            os.makedirs(os.path.dirname(self.model_dir))
         
         # 모델 저장
-        self.model.save(f"{self.model_path}.keras")
+        self.model.save(os.path.join(self.model_dir, 'classifier_model.keras'))
         
         # 인코더 저장
         encoders = {
             'click_path_encoder': self.click_path_encoder,
             'tag_encoder': self.tag_encoder
         }
-        joblib.dump(encoders, f"{self.model_path}_encoders.joblib")
+        joblib.dump(encoders, os.path.join(self.model_dir, 'classifier_model_encoders.joblib'))
         
-        logging.info(f"Model and encoders saved to {self.model_path}.keras")
+        logging.info(f"Model and encoders saved to {os.path.join(self.model_dir, 'classifier_model.keras')}")
 
     def load_model(self):
         """모델 로드"""
         logging.info("Loading model...")
-        if not os.path.exists(self.model_path):
-            raise FileNotFoundError(f"Model not found at {self.model_path}")
+        model_path = os.path.join(self.model_dir, 'classifier_model.keras')
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model not found at {model_path}")
         
         # 모델 로드
         self.model = tf.keras.models.load_model(
-            self.model_path,
+            model_path,
             custom_objects={
                 'SublayerNormalization': SublayerNormalization,
                 'GeLU': GeLU
@@ -156,7 +157,8 @@ class NeuralUserClassifier:
         )
         
         # 인코더 로드
-        encoders = joblib.load(os.path.join(self.model_path, 'classifier_model_encoders.joblib'))
+        encoders_path = os.path.join(self.model_dir, 'classifier_model_encoders.joblib')
+        encoders = joblib.load(encoders_path)
         self.click_path_encoder = encoders['click_path_encoder']
         self.tag_encoder = encoders['tag_encoder']
         
