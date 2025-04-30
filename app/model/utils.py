@@ -38,6 +38,10 @@ def apply_weight_decay(logs, decay_rate: float = 0.9):
     Returns:
         list: 각 로그 항목에 대한 가중치 리스트.
     """
+    # 가중치 계산 (시간 정보가 없는 경우 모든 로그에 동일한 가중치 부여)
+    if not logs or 'timestamp' not in logs[0]:
+        return [1.0] * len(logs)
+    
     # 타임스탬프를 기준으로 정렬
     sorted_logs = sorted(logs, key=lambda x: x['timestamp'], reverse=True)
     

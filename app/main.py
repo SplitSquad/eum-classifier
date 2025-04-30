@@ -1,21 +1,19 @@
 from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
 import os
-from services.db import fetch_user_logs
-from services.infer import predict_user_preferences
+from app.services.infer import predict_user_preferences
 
 load_dotenv()
 
 app = FastAPI()
 
-@app.get("/predict")
-def predict(uid: int):
+@app.get("/user/{uid}/preferences")
+async def get_user_preferences(uid: int):
+    """사용자의 성향 분석 결과를 반환하는 API 엔드포인트"""
     try:
-        logs = fetch_user_logs(uid)
-        if not logs:
-            raise HTTPException(status_code=404, detail="No logs found for the user")
-
-        result = predict_user_preferences(logs)
+        result = predict_user_preferences(uid)
         return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

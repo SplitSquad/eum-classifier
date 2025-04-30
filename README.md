@@ -2,6 +2,54 @@
 
 이 프로젝트는 사용자의 웹로그 데이터를 기반으로 성향 분석을 수행하는 시스템입니다. `LightFM` 모델과 딥러닝 기반의 분류기를 활용하여 유저의 관심사를 분류하고 예측합니다.
 
+## 태그
+
+각각의 태그는 클릭 게시글의 유형(커뮤니티, 정보, 토론)에 따라 결정됩니다.
+
+커뮤니티 태그 : "ClickPath": "/community"인 경우의 태그
+커뮤니티 태그는 다음과 같습니다(17가지):
+
+관광/체험 : travel, 
+식도락/맛집 : food, 
+교통/이동 : transportation, 
+숙소/지역 : local, 
+대사관/응급 : emergency
+부동산/계약 : estate, 
+생활환경/편의 : living, 
+문화/생활 : culture, 
+주거지 관리/유지 : housing,
+학사/캠퍼스 : academic, 
+학업지원 : academic_support, 
+행정/비자/서류 : documents, 
+기숙사/주거 : dormitory,
+이력/채용 : recruitment, 
+비자/법률/노동 : labor, 
+잡페어/네트워킹 : jobfair, 
+알바/파트타임 : part_time
+
+정보 태그 : "ClickPath": "/info"인 경우의 태그
+정보 태그는 다음과 같습니다(8개):
+
+비자/법률 : visa_law, 
+취업/직장 : job, 
+주거/부동산 : housing, 
+교육 : education, 
+의료/건강 : health, 
+금융/세금 : finance, 
+교통 : transportation, 
+쇼핑 : shopping
+
+
+토론 태그 : "ClickPath": "/debate"인 경우의 태그
+토론 태그는 다음과 같습니다(6개):
+
+정치/사회 : society, 
+경제 : economy, 
+생활/문화 : life, 
+과학/기술 : tech, 
+스포츠 : sports, 
+엔터테인먼트 : entertainment
+
 ## 시스템 아키텍처
 
 ```

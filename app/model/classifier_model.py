@@ -107,7 +107,7 @@ class NeuralUserClassifier:
         logging.info("Training model...")
         history = self.model.fit(
             X, y,
-            epochs=10,
+            epochs=1,
             batch_size=32,
             validation_split=0.2,
             callbacks=[
@@ -129,7 +129,7 @@ class NeuralUserClassifier:
             os.makedirs(os.path.dirname(self.model_path))
         
         # 모델 저장
-        self.model.save(self.model_path)
+        self.model.save(f"{self.model_path}.keras")
         
         # 인코더 저장
         encoders = {
@@ -138,7 +138,7 @@ class NeuralUserClassifier:
         }
         joblib.dump(encoders, f"{self.model_path}_encoders.joblib")
         
-        logging.info(f"Model and encoders saved to {self.model_path}")
+        logging.info(f"Model and encoders saved to {self.model_path}.keras")
 
     def load_model(self):
         """모델 로드"""
@@ -156,7 +156,7 @@ class NeuralUserClassifier:
         )
         
         # 인코더 로드
-        encoders = joblib.load(f"{self.model_path}_encoders.joblib")
+        encoders = joblib.load(os.path.join(self.model_path, 'classifier_model_encoders.joblib'))
         self.click_path_encoder = encoders['click_path_encoder']
         self.tag_encoder = encoders['tag_encoder']
         
