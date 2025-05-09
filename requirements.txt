@@ -1,19 +1,33 @@
+fastapi==0.68.1
+uvicorn==0.15.0
+
+pydantic==1.8.2
+python-dotenv==1.0.0
+
 numpy==1.23.5
 pandas==2.0.3
 scikit-learn==1.2.2
-tensorflow==2.12.0
-lightfm @ git+https://github.com/lyst/lightfm.git@master#egg=lightfm
-
-
-pymysql==1.1.0
 scipy==1.10.1
 joblib==1.2.0
-fastapi==0.68.1
-uvicorn==0.15.0
-pydantic==1.8.2
-sqlalchemy==1.4.23
-mysqlclient==2.0.3
-python-dotenv==1.0.0
-mysql-connector-python==8.0.33
-tqdm==4.66.2
+threadpoolctl==3.6.0
 
+tensorflow==2.16.2
+tensorflow-macos==2.16.2
+tensorflow-metal==1.2.0
+tensorflow-io-gcs-filesystem==0.37.1
+tensorflow-estimator==2.12.0
+h5py==3.13.0
+
+lightfm @ git+https://github.com/lyst/lightfm.git@0c9c31e027b976beab2385e268b58010fff46096
+
+SQLAlchemy==1.4.23
+PyMySQL==1.1.0
+mysql-connector-python==8.0.33
+
+requests==2.32.3
+urllib3==2.4.0
+certifi==2025.4.26
+charset-normalizer==3.4.1
+idna==3.10
+
+typing_extensions==4.13.2

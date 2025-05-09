@@ -71,7 +71,6 @@ poetry.lock
 .DS_Store
 
 # Models / Data
-*.pkl
 *.h5
 *.joblib
 *.npy
