@@ -10,92 +10,107 @@ load_dotenv()
 
 # DB 연결 설정
 def get_db_connection():
-    """데이터베이스 연결 설정"""
-    try:
-        connection = mysql.connector.connect(
-            host=os.getenv("DB_HOST"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            database=os.getenv("DB_NAME"),
-            charset='utf8mb4',  # 한글 처리 및 Unicode 지원
-        )
-        return connection
-    except Error as e:
-        logging.error(f"Error connecting to MySQL: {e}")
-        return None
+    """데이터베이스 연결 생성"""
+    return mysql.connector.connect(
+        host=os.getenv('DB_HOST', 'localhost'),
+        user=os.getenv('DB_USER', 'root'),
+        password=os.getenv('DB_PASSWORD', ''),
+        database=os.getenv('DB_NAME', 'eum_classifier')
+    )
 
 # UID에 해당하는 웹로그를 불러오는 함수
-def fetch_user_logs(uid: Optional[int] = None) -> List[Dict[str, Any]]:
-    """사용자 웹 로그 데이터 조회"""
-    connection = get_db_connection()
-    if not connection:
-        return []
-
+def fetch_user_logs(uid: int, limit: int = None) -> List[Dict[str, Any]]:
+    """특정 사용자의 웹로그 조회"""
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
     try:
-        cursor = connection.cursor(dictionary=True)
-        if uid is not None:
-            query = """
-                SELECT id, uid, click_path, tag, current_path, event, content, timestamp
-                FROM weblog
-                WHERE uid = %s
-                ORDER BY timestamp DESC;
-            """
-            cursor.execute(query, (uid,))
-        else:
-            query = """
-                SELECT id, uid, click_path, tag, current_path, event, content, timestamp
-                FROM weblog
-                ORDER BY timestamp DESC;
-            """
-            cursor.execute(query)
+        query = """
+            SELECT 
+                id,
+                uid,
+                click_path,
+                tag,
+                current_path,
+                event,
+                content,
+                timestamp
+            FROM weblog
+            WHERE uid = %s
+            ORDER BY timestamp ASC
+        """
         
-        result = cursor.fetchall()
-        return result
-    except Error as e:
-        logging.error(f"Error fetching user logs: {e}")
-        return []
+        if limit:
+            query += f" LIMIT {limit}"
+            
+        cursor.execute(query, (uid,))
+        return cursor.fetchall()
     finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+        cursor.close()
+        conn.close()
 
 def fetch_user_profile(uid: int) -> Optional[Dict[str, Any]]:
     """사용자 프로필 데이터 조회"""
-    connection = get_db_connection()
-    if not connection:
-        return None
-
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
     try:
-        cursor = connection.cursor(dictionary=True)
         query = """
-            SELECT uid, community_preference, info_preference, discussion_preference
+            SELECT 
+                uid,
+                community_preference,
+                info_preference,
+                discussion_preference
             FROM user_profile
-            WHERE uid = %s;
+            WHERE uid = %s
         """
         cursor.execute(query, (uid,))
         result = cursor.fetchone()
         return result
-    except Error as e:
-        logging.error(f"Error fetching user profile: {e}")
-        return None
     finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+        cursor.close()
+        conn.close()
 
 # 모든 웹로그를 불러오는 함수
-def fetch_all_logs() -> List[Dict[str, Any]]:
-    return fetch_user_logs()
+def fetch_all_logs(limit: int = None) -> List[Dict[str, Any]]:
+    """전체 웹로그 조회"""
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                w.id,
+                w.uid,
+                w.click_path,
+                w.tag,
+                w.current_path,
+                w.event,
+                w.content,
+                w.timestamp,
+                p.community_preference,
+                p.info_preference,
+                p.discussion_preference
+            FROM weblog w
+            LEFT JOIN user_profile p ON w.uid = p.uid
+            ORDER BY w.timestamp ASC
+        """
+        
+        if limit:
+            query += f" LIMIT {limit}"
+            
+        cursor.execute(query)
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
 
 def check_distinct_values():
     """웹로그 테이블의 고유값 확인"""
-    connection = get_db_connection()
-    if not connection:
-        return None
-
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
     try:
-        cursor = connection.cursor(dictionary=True)
-        
         # current_path 확인
         cursor.execute("SELECT DISTINCT current_path FROM weblog")
         paths = cursor.fetchall()
@@ -134,19 +149,15 @@ def check_distinct_values():
         logging.error(f"Error checking distinct values: {e}")
         return None
     finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+        cursor.close()
+        conn.close()
 
 def check_data_structure():
     """데이터 구조 확인"""
-    connection = get_db_connection()
-    if not connection:
-        return None
-
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
     try:
-        cursor = connection.cursor(dictionary=True)
-        
         # 샘플 데이터 확인
         cursor.execute("SELECT * FROM weblog LIMIT 5")
         sample_logs = cursor.fetchall()
@@ -172,9 +183,8 @@ def check_data_structure():
         logging.error(f"Error checking data structure: {e}")
         return None
     finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+        cursor.close()
+        conn.close()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

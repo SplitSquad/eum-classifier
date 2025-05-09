@@ -1,235 +1,337 @@
 import os
+import joblib
 import numpy as np
+import logging
+import time
+from tqdm import tqdm
 import tensorflow as tf
 from tensorflow.keras import layers, models
 from sklearn.preprocessing import LabelEncoder
-import joblib
-from app.model.db import fetch_user_logs
+from sklearn.feature_extraction.text import TfidfVectorizer
 from app.model.utils import preprocess_logs, apply_weight_decay
-import logging
-from tqdm import tqdm
+from app.model.db import fetch_all_logs, fetch_user_logs
+import multiprocessing
+import json
 from datetime import datetime
-import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+import pickle
 
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('logs/classifier_training.log')
-    ]
-)
+MODEL_PATH = "app/model/saved_models/user_preference_classifier"
 
-class SublayerNormalization(layers.Layer):
-    """SubLN (Sublayer Normalization) 레이어"""
-    def __init__(self, epsilon=1e-6, **kwargs):
-        super(SublayerNormalization, self).__init__(**kwargs)
-        self.epsilon = epsilon
-        self.gamma = None
-        self.beta = None
-
-    def build(self, input_shape):
-        self.gamma = self.add_weight(
-            name='gamma',
-            shape=input_shape[-1:],
-            initializer='ones',
-            trainable=True
-        )
-        self.beta = self.add_weight(
-            name='beta',
-            shape=input_shape[-1:],
-            initializer='zeros',
-            trainable=True
-        )
-        super(SublayerNormalization, self).build(input_shape)
-
-    def call(self, x):
-        mean = tf.reduce_mean(x, axis=-1, keepdims=True)
-        variance = tf.reduce_mean(tf.square(x - mean), axis=-1, keepdims=True)
-        x = (x - mean) / tf.sqrt(variance + self.epsilon)
-        return x * self.gamma + self.beta
-
-class GeLU(layers.Layer):
-    """GeLU (Gaussian Error Linear Unit) 활성화 함수"""
-    def __init__(self, **kwargs):
-        super(GeLU, self).__init__(**kwargs)
-
-    def call(self, x):
-        return 0.5 * x * (1 + tf.tanh(tf.sqrt(2 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
-
-class NeuralUserClassifier:
-    def __init__(self, model_dir='app/model/saved_models'):
-        self.model_dir = model_dir
-        self.model = None
-        self.click_path_encoder = None
-        self.tag_encoder = None
+class UserPreferenceClassifier:
+    def __init__(self):
+        # GPU 사용 가능 여부 확인
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            try:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+                print(f"\nGPU 사용 가능: {len(gpus)}개")
+                print("GPU 메모리 동적 할당 설정 완료")
+            except RuntimeError as e:
+                print(f"\nGPU 설정 오류: {e}")
+        else:
+            print("\nGPU를 찾을 수 없습니다. CPU를 사용합니다.")
         
-        # 로그 디렉토리 생성
-        os.makedirs('logs', exist_ok=True)
-        logging.info("Initialized Neural User Classifier")
-
-    def build_model(self, input_dim, output_dim):
-        """신경망 모델 구축"""
-        model = tf.keras.Sequential([
-            tf.keras.layers.Input(shape=(1,)),
-            tf.keras.layers.Embedding(input_dim=input_dim, output_dim=32),
-            tf.keras.layers.Flatten(),
-            SublayerNormalization(),
-            tf.keras.layers.Dense(64),
-            GeLU(),
-            SublayerNormalization(),
-            tf.keras.layers.Dense(output_dim, activation='softmax')
-        ])
+        # 모델 초기화
+        self.models = {
+            '/community': None,
+            '/info': None,
+            '/debate': None
+        }
+        self.tag_encoders = None
+        self.scaler = None
         
+        # 태그 매핑 정의
+        self.tag_mapping = {
+            '/community': [
+                '관광/체험', '식도락/맛집', '교통/이동', '숙소/지역', '대사관/응급',
+                '부동산/계약', '생활환경/편의', '문화/생활', '주거지 관리/유지',
+                '학사/캠퍼스', '학업지원', '행정/비자/서류', '기숙사/주거',
+                '이력/채용', '비자/법률/노동', '잡페어/네트워킹', '알바/파트타임'
+            ],
+            '/info': [
+                '비자/법률', '취업/직장', '주거/부동산', '교육', '의료/건강',
+                '금융/세금', '교통', '쇼핑'
+            ],
+            '/debate': [
+                '정치/사회', '경제', '생활/문화', '과학/기술', '스포츠', '엔터테인먼트'
+            ]
+        }
+
+    def _build_model(self, input_dim, num_classes):
+        """TensorFlow 모델 구축"""
+        # 입력 레이어 정의
+        inputs = layers.Input(shape=(input_dim,))
+        
+        # 모델 레이어 구성
+        x = layers.Dense(512, activation='gelu')(inputs)
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(0.4)(x)
+        
+        x = layers.Dense(256, activation='gelu')(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(0.3)(x)
+        
+        x = layers.Dense(128, activation='gelu')(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(0.2)(x)
+        
+        outputs = layers.Dense(num_classes, activation='softmax')(x)
+        
+        # 모델 생성
+        model = models.Model(inputs=inputs, outputs=outputs)
+        
+        # 모델 컴파일
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+            optimizer='adam',
             loss='sparse_categorical_crossentropy',
             metrics=['accuracy']
         )
         
         return model
 
-    def train(self, logs):
-        """모델 학습"""
-        logging.info("Starting model training...")
-        logging.info("Preparing features from logs...")
+    def train(self, X, y, tag_encoders):
+        """모델 학습
         
+        Args:
+            X: 피처 행렬
+            y: 레이블 딕셔너리 (카테고리별 레이블)
+            tag_encoders: 태그 인코더 딕셔너리
+        """
+        print("\n=== 모델 학습 시작 ===")
+        print(f"입력 데이터 크기: {X.shape}")
+        print(f"학습에 사용될 총 샘플 수: {len(X)}")
+        
+        # 스케일러 초기화 및 학습
+        print("\n[1/4] 데이터 스케일링")
+        self.scaler = StandardScaler()
+        X_scaled = self.scaler.fit_transform(X)
+        print("데이터 스케일링 완료")
+        print(f"평균: {self.scaler.mean_[:5]}...")
+        print(f"표준편차: {self.scaler.scale_[:5]}...")
+        
+        # 태그 인코더 저장
+        print("\n[2/4] 태그 인코더 초기화")
+        self.tag_encoders = tag_encoders
+        for path, encoder in self.tag_encoders.items():
+            print(f"{path} 태그 수: {len(encoder.classes_)}")
+            print(f"태그 목록: {encoder.classes_}")
+        
+        # 각 카테고리별 모델 학습
+        print("\n[3/4] 모델 학습")
+        for path in tqdm(['/community', '/info', '/debate'], desc="카테고리별 학습"):
+            print(f"\n=== {path} 모델 학습 ===")
+            
+            # 하이퍼파라미터 출력
+            params = {
+                'n_estimators': 100,
+                'max_depth': 10,
+                'min_samples_split': 5,
+                'min_samples_leaf': 2,
+                'random_state': 42
+            }
+            print("하이퍼파라미터:")
+            for param, value in params.items():
+                print(f"- {param}: {value}")
+            
+            # 모델 초기화
+            model = RandomForestClassifier(**params)
+            
+            # 클래스별 샘플 수 확인
+            unique, counts = np.unique(y[path], return_counts=True)
+            print("\n클래스별 샘플 수:")
+            for class_idx, count in zip(unique, counts):
+                class_name = self.tag_encoders[path].inverse_transform([class_idx])[0]
+                print(f"- {class_name}: {count}")
+            
+            # 모델 학습 시작
+            print("\n학습 시작...")
+            train_start = time.time()
+            model.fit(X_scaled, y[path])
+            train_time = time.time() - train_start
+            
+            # 모델 평가
+            y_pred = model.predict(X_scaled)
+            accuracy = accuracy_score(y[path], y_pred)
+            
+            # 특성 중요도
+            feature_importance = model.feature_importances_
+            top_k = 5
+            top_indices = np.argsort(feature_importance)[-top_k:]
+            
+            print(f"\n학습 결과:")
+            print(f"- 소요 시간: {train_time:.2f}초")
+            print(f"- 정확도: {accuracy:.4f}")
+            print(f"\n상위 {top_k}개 중요 특성:")
+            for idx in top_indices:
+                print(f"- 특성 {idx}: {feature_importance[idx]:.4f}")
+            
+            # 모델 저장
+            self.models[path] = model
+        
+        print("\n[4/4] 모델 저장")
+        # MODEL_PATH 디렉토리 생성
+        os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
+        print(f"모델 디렉토리 생성: {os.path.dirname(MODEL_PATH)}")
+        
+        # 각 카테고리별 모델 저장
+        for path, model in self.models.items():
+            model_path = f"{MODEL_PATH}_{path.replace('/', '_')}.pkl"
+            with open(model_path, 'wb') as f:
+                pickle.dump(model, f)
+            print(f"모델 저장 완료: {model_path}")
+        
+        # 스케일러 저장
+        scaler_path = f"{MODEL_PATH}_scaler.pkl"
+        with open(scaler_path, 'wb') as f:
+            pickle.dump(self.scaler, f)
+        print(f"스케일러 저장 완료: {scaler_path}")
+        
+        # 태그 인코더 저장
+        encoders_path = f"{MODEL_PATH}_tag_encoders.pkl"
+        with open(encoders_path, 'wb') as f:
+            pickle.dump(self.tag_encoders, f)
+        print(f"태그 인코더 저장 완료: {encoders_path}")
+        
+        print("\n=== 모델 학습 완료 ===")
+        print(f"모델 파일이 {os.path.dirname(MODEL_PATH)} 디렉토리에 저장되었습니다.")
+    
+    def predict(self, uid):
+        """사용자 성향 예측
+        
+        Args:
+            uid: 사용자 ID
+            
+        Returns:
+            dict: 카테고리별 예측 결과
+        """
+        if not all(self.models.values()):
+            print("모델이 로드되지 않았습니다.")
+            return None
+            
+        # 사용자 로그 데이터 가져오기
+        user_logs = fetch_user_logs(uid)
+        if not user_logs:
+            print(f"사용자 {uid}의 로그 데이터가 없습니다.")
+            return None
+            
         # 데이터 전처리
-        X, y, self.click_path_encoder, self.tag_encoder = preprocess_logs(logs)
+        X, _, _ = preprocess_logs(user_logs)
+        if X is None or len(X) == 0:
+            print("전처리된 데이터가 없습니다.")
+            return None
+            
+        # 데이터 스케일링
+        X_scaled = self.scaler.transform(X)
         
-        # 모델 구축
-        input_dim = len(self.click_path_encoder.classes_)
-        output_dim = len(self.tag_encoder.classes_)
-        self.model = self.build_model(input_dim, output_dim)
+        # 각 카테고리별 예측
+        predictions = {}
+        for path in ['/community', '/info', '/debate']:
+            # 예측 확률 계산
+            probas = self.models[path].predict_proba(X_scaled)[0]
+            
+            # 태그별 확률 매핑
+            tag_probas = {}
+            for tag, prob in zip(self.tag_encoders[path].classes_, probas):
+                tag_probas[tag] = float(prob)
+            
+            # 결과 저장
+            if path == '/community':
+                predictions['community_preferences'] = tag_probas
+            elif path == '/info':
+                predictions['info_preferences'] = tag_probas
+            elif path == '/debate':
+                predictions['discussion_preferences'] = tag_probas
         
-        # 학습
-        logging.info("Training model...")
-        history = self.model.fit(
-            X, y,
-            epochs=1,
-            batch_size=32,
-            validation_split=0.2,
-            callbacks=[
-                tf.keras.callbacks.EarlyStopping(
-                    monitor='val_loss',
-                    patience=3,
-                    restore_best_weights=True
-                )
-            ]
-        )
-        
-        logging.info("Model training completed")
-        return history
-
-    def save_model(self):
+        return predictions
+    
+    def save_model(self, model_dir='models'):
         """모델 저장"""
-        logging.info("Saving model...")
-        if not os.path.exists(os.path.dirname(self.model_dir)):
-            os.makedirs(os.path.dirname(self.model_dir))
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir)
+            
+        # 각 카테고리별 모델 저장
+        for path, model in self.models.items():
+            model_path = os.path.join(model_dir, f'user_preference_{path.replace("/", "_")}.pkl')
+            with open(model_path, 'wb') as f:
+                pickle.dump(model, f)
         
-        # 모델 저장
-        self.model.save(os.path.join(self.model_dir, 'classifier_model.keras'))
-        
-        # 인코더 저장
-        encoders = {
-            'click_path_encoder': self.click_path_encoder,
-            'tag_encoder': self.tag_encoder
-        }
-        joblib.dump(encoders, os.path.join(self.model_dir, 'classifier_model_encoders.joblib'))
-        
-        logging.info(f"Model and encoders saved to {os.path.join(self.model_dir, 'classifier_model.keras')}")
-
+        # 스케일러 저장
+        scaler_path = os.path.join(model_dir, 'scaler.pkl')
+        with open(scaler_path, 'wb') as f:
+            pickle.dump(self.scaler, f)
+            
+        # 태그 인코더 저장
+        encoders_path = os.path.join(model_dir, 'tag_encoders.pkl')
+        with open(encoders_path, 'wb') as f:
+            pickle.dump(self.tag_encoders, f)
+            
+        print(f"모델이 {model_dir}에 저장되었습니다.")
+    
     def load_model(self):
         """모델 로드"""
-        logging.info("Loading model...")
-        model_path = os.path.join(self.model_dir, 'classifier_model.keras')
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model not found at {model_path}")
-        
-        # 모델 로드
-        self.model = tf.keras.models.load_model(
-            model_path,
-            custom_objects={
-                'SublayerNormalization': SublayerNormalization,
-                'GeLU': GeLU
-            }
-        )
-        
-        # 인코더 로드
-        encoders_path = os.path.join(self.model_dir, 'classifier_model_encoders.joblib')
-        encoders = joblib.load(encoders_path)
-        self.click_path_encoder = encoders['click_path_encoder']
-        self.tag_encoder = encoders['tag_encoder']
-        
-        logging.info("Model and encoders loaded")
-
-    def predict(self, user_id):
-        """사용자 성향 예측"""
-        if self.model is None:
-            raise ValueError("Model not trained or loaded")
-        
-        # 사용자의 최근 로그 가져오기
-        user_logs = fetch_user_logs(user_id)
-        if not user_logs:
-            logging.warning(f"No logs found for user {user_id}")
-            return {}
-        
-        # 데이터 전처리
-        df = pd.DataFrame(user_logs)
-        df = df[['click_path']]
-        df = df.dropna()
-        
-        if df.empty:
-            logging.warning("No valid click paths found")
-            return {}
-        
-        # click_path 인코딩
         try:
-            X = self.click_path_encoder.transform(df['click_path'])
-        except ValueError as e:
-            logging.warning(f"Error encoding click paths: {e}")
-            return {}
-        
-        # 예측
-        predictions = self.model.predict(X)
-        
-        # 결과 처리
-        results = {}
-        for click_path, pred in zip(df['click_path'], predictions):
-            # 모든 태그의 점수 계산
-            all_tags = [
-                (self.tag_encoder.inverse_transform([idx])[0], float(pred[idx]))
-                for idx in range(len(pred))
-            ]
-            # 점수 기준 내림차순 정렬
-            all_tags.sort(key=lambda x: x[1], reverse=True)
-            results[click_path] = all_tags
-        
-        return results
+            # 각 카테고리별 모델 로드
+            for path in ['/community', '/info', '/debate']:
+                model_path = f"{MODEL_PATH}_{path.replace('/', '_')}.pkl"
+                if not os.path.exists(model_path):
+                    raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {model_path}")
+                with open(model_path, 'rb') as f:
+                    self.models[path] = pickle.load(f)
+                print(f"모델 로드 완료: {path}")
+            
+            # 스케일러 로드
+            scaler_path = f"{MODEL_PATH}_scaler.pkl"
+            if not os.path.exists(scaler_path):
+                raise FileNotFoundError(f"스케일러 파일을 찾을 수 없습니다: {scaler_path}")
+            with open(scaler_path, 'rb') as f:
+                self.scaler = pickle.load(f)
+            print("스케일러 로드 완료")
+            
+            # 태그 인코더 로드
+            encoders_path = f"{MODEL_PATH}_tag_encoders.pkl"
+            if not os.path.exists(encoders_path):
+                raise FileNotFoundError(f"태그 인코더 파일을 찾을 수 없습니다: {encoders_path}")
+            with open(encoders_path, 'rb') as f:
+                self.tag_encoders = pickle.load(f)
+            print("태그 인코더 로드 완료")
+            
+            print("\n모델이 성공적으로 로드되었습니다.")
+            
+        except Exception as e:
+            print(f"모델 로드 중 오류 발생: {str(e)}")
+            raise
 
 if __name__ == "__main__":
-    logging.info("Starting classifier model training script")
+    # 로깅 설정
+    logging.basicConfig(level=logging.INFO)
     
-    # 학습 데이터 로드
-    logging.info("Loading user logs from database...")
-    logs = fetch_user_logs()
-    
-    if not logs:
-        logging.error("No logs found in database")
-        exit(1)
-    
-    logging.info(f"Loaded {len(logs)} logs")
-    
-    # 모델 초기화 및 학습
-    classifier = NeuralUserClassifier()
-    classifier.train(logs)
-    
-    # 모델 저장
-    classifier.save_model()
-    
-    # 테스트 예측
-    test_user_id = logs[0]['uid']
-    logging.info(f"Testing prediction for user {test_user_id}")
-    predictions = classifier.predict(test_user_id)
-    logging.info(f"Predicted tags: {predictions}") 
+    try:
+        # 1. 데이터 로드
+        print("\n=== 데이터 로드 시작 ===")
+        logs = fetch_all_logs()
+        if not logs:
+            raise ValueError("데이터를 불러올 수 없습니다.")
+        print(f"로드된 로그 수: {len(logs)}")
+        
+        # 2. 데이터 전처리
+        print("\n=== 데이터 전처리 시작 ===")
+        X, y, tag_encoders = preprocess_logs(logs)
+        
+        # 3. 모델 학습
+        print("\n=== 모델 학습 시작 ===")
+        classifier = UserPreferenceClassifier()
+        classifier.train(X, y, tag_encoders)
+        
+        # 4. 모델 저장
+        print("\n=== 모델 저장 시작 ===")
+        classifier.save_model()
+        
+        print("\n모델 학습 및 저장이 완료되었습니다!")
+        
+    except Exception as e:
+        print(f"\n오류 발생: {str(e)}")
+        raise

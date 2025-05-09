@@ -223,3 +223,16 @@ curl -X 'POST' \
 - API 기능 확장: 예측 외에도, 모델 평가와 성능 분석 기능을 API로 제공
 - 새로운 태그 카테고리 추가 및 모델 성능 개선
 - 모델 앙상블 기법 추가 및 최적화
+
+
+# 학습 방법
+
+```bash
+python -m app.model.classifier_model
+```
+
+# 실행 방법
+
+```bash
+uvicorn app.main:app --reload
+```

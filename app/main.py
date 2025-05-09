@@ -1,51 +1,102 @@
 from fastapi import FastAPI, HTTPException
 from typing import Dict, List, Any
-from app.model.classifier_model import NeuralUserClassifier
+from app.model.classifier_model import UserPreferenceClassifier
+from app.model.db import fetch_user_logs
+from app.model.utils import preprocess_logs
+import logging
+import numpy as np
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
 # 모델 초기화
-classifier = NeuralUserClassifier()
+classifier = UserPreferenceClassifier()
 try:
     classifier.load_model()
-except FileNotFoundError:
-    print("Warning: Model not found. Please train the model first.")
+    logger.info("Model loaded successfully")
+except Exception as e:
+    logger.error(f"Model loading failed: {str(e)}")
+
+def smooth_distribution(d: dict, temperature: float = 1.5) -> dict:
+    """확률 분포를 부드럽게 조정 (편차를 줄임)"""
+    keys = list(d.keys())
+    values = np.array(list(d.values()))
+
+    # log와 온도 조정 적용
+    values = np.log(values + 1e-10) / temperature
+    exp_values = np.exp(values)
+    normalized = exp_values / np.sum(exp_values)
+
+    return {k: float(round(v, 5)) for k, v in zip(keys, normalized)}
 
 @app.get("/user/{uid}/preferences")
-async def get_user_preferences(uid: int) -> Dict[str, List[Dict[str, Any]]]:
+async def get_user_preferences(uid: int) -> Dict[str, Any]:
     """사용자의 성향을 분석하여 반환"""
     try:
+        logger.info(f"Processing request for user {uid}")
+        
+        # 사용자의 웹로그 데이터 가져오기
+        user_logs = fetch_user_logs(uid)
+        if not user_logs:
+            logger.warning(f"No logs found for user {uid}")
+            raise HTTPException(status_code=404, detail=f"No logs found for user {uid}")
+        
+        logger.info(f"Found {len(user_logs)} logs for user {uid}")
+        
+        # 웹로그 전처리
+        logger.info("Starting log preprocessing")
+        X, _, _ = preprocess_logs(user_logs)
+        logger.info(f"Preprocessing completed. Feature shape: {X.shape}")
+        
         # classifier로 예측
+        logger.info("Starting prediction")
         predictions = classifier.predict(uid)
+        if not predictions:
+            logger.warning(f"No predictions available for user {uid}")
+            raise HTTPException(status_code=404, detail=f"No predictions available for user {uid}")
+        
+        logger.info(f"Predictions received: {predictions}")
         
         # 결과 포맷 변환
-        preferences = {}
-        for click_path, tag_scores in predictions.items():
-            # click_path에서 content_type 추출
-            content_type = click_path.strip('/')
-            if content_type == 'info':
-                content_type = 'information'
-            elif content_type == 'debate':
-                content_type = 'discussion'
-            
-            # 태그와 점수를 백분율로 변환
-            total_score = sum(score for _, score in tag_scores)
-            if total_score == 0:
-                preferences[content_type] = []
-            else:
-                # 0%인 태그는 필터링하고, 백분율을 정수로 반올림
-                tag_percentages = [
-                    {"category": tag, "percentage": round(score / total_score * 100)}
-                    for tag, score in tag_scores
-                ]
-                preferences[content_type] = [
-                    item for item in tag_percentages
-                    if item["percentage"] > 0
-                ]
+        response = {
+            "uid": f"user_{uid}",
+            "community_preferences": {},
+            "info_preferences": {},
+            "discussion_preferences": {}
+        }
         
-        return preferences
+        # community_preferences 처리
+        if "community_preferences" in predictions:
+            logger.info("Processing community preferences")
+            for tag, score in predictions["community_preferences"].items():
+                response["community_preferences"][tag] = float(score)
+        
+        # info_preferences 처리
+        if "info_preferences" in predictions:
+            logger.info("Processing info preferences")
+            for tag, score in predictions["info_preferences"].items():
+                response["info_preferences"][tag] = float(score)
+        
+        # discussion_preferences 처리
+        if "discussion_preferences" in predictions:
+            logger.info("Processing discussion preferences")
+            for tag, score in predictions["discussion_preferences"].items():
+                response["discussion_preferences"][tag] = float(score)
+        
+        # 각 카테고리별 확률 분포 정규화
+        response["community_preferences"] = smooth_distribution(response["community_preferences"])
+        response["info_preferences"] = smooth_distribution(response["info_preferences"])
+        response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"])
+        
+        logger.info(f"Final response: {response}")
+        return response
         
     except ValueError as e:
+        logger.error(f"ValueError in get_user_preferences: {str(e)}")
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.error(f"Error in get_user_preferences: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
