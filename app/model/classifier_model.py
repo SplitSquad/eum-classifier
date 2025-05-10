@@ -69,15 +69,15 @@ class UserPreferenceClassifier:
         # 모델 레이어 구성
         x = layers.Dense(512, activation='gelu')(inputs)
         x = layers.BatchNormalization()(x)
-        x = layers.Dropout(0.4)(x)
+        x = layers.Dropout(0.5)(x)
         
         x = layers.Dense(256, activation='gelu')(x)
         x = layers.BatchNormalization()(x)
-        x = layers.Dropout(0.3)(x)
+        x = layers.Dropout(0.4)(x)
         
         x = layers.Dense(128, activation='gelu')(x)
         x = layers.BatchNormalization()(x)
-        x = layers.Dropout(0.2)(x)
+        x = layers.Dropout(0.3)(x)
         
         outputs = layers.Dense(num_classes, activation='softmax')(x)
         
@@ -127,18 +127,18 @@ class UserPreferenceClassifier:
             
             # 하이퍼파라미터 출력
             params = {
-                'n_estimators': 100,
-                'max_depth': 10,
-                'min_samples_split': 5,
-                'min_samples_leaf': 2,
-                'random_state': 42
+                'batch_size': 32,
+                'epochs': 50,
+                'validation_split': 0.2,
+                'early_stopping_patience': 5
             }
             print("하이퍼파라미터:")
             for param, value in params.items():
                 print(f"- {param}: {value}")
             
             # 모델 초기화
-            model = RandomForestClassifier(**params)
+            num_classes = len(self.tag_encoders[path].classes_)
+            model = self._build_model(X.shape[1], num_classes)
             
             # 클래스별 샘플 수 확인
             unique, counts = np.unique(y[path], return_counts=True)
@@ -147,27 +147,36 @@ class UserPreferenceClassifier:
                 class_name = self.tag_encoders[path].inverse_transform([class_idx])[0]
                 print(f"- {class_name}: {count}")
             
+            # Early Stopping 설정
+            early_stopping = tf.keras.callbacks.EarlyStopping(
+                monitor='val_loss',
+                patience=params['early_stopping_patience'],
+                restore_best_weights=True
+            )
+            
             # 모델 학습 시작
             print("\n학습 시작...")
             train_start = time.time()
-            model.fit(X_scaled, y[path])
+            history = model.fit(
+                X_scaled, y[path],
+                batch_size=params['batch_size'],
+                epochs=params['epochs'],
+                validation_split=params['validation_split'],
+                callbacks=[early_stopping],
+                verbose=1
+            )
             train_time = time.time() - train_start
             
             # 모델 평가
             y_pred = model.predict(X_scaled)
-            accuracy = accuracy_score(y[path], y_pred)
-            
-            # 특성 중요도
-            feature_importance = model.feature_importances_
-            top_k = 5
-            top_indices = np.argsort(feature_importance)[-top_k:]
+            y_pred_classes = np.argmax(y_pred, axis=1)
+            accuracy = accuracy_score(y[path], y_pred_classes)
             
             print(f"\n학습 결과:")
             print(f"- 소요 시간: {train_time:.2f}초")
             print(f"- 정확도: {accuracy:.4f}")
-            print(f"\n상위 {top_k}개 중요 특성:")
-            for idx in top_indices:
-                print(f"- 특성 {idx}: {feature_importance[idx]:.4f}")
+            print(f"- 최종 손실: {history.history['loss'][-1]:.4f}")
+            print(f"- 최종 검증 손실: {history.history['val_loss'][-1]:.4f}")
             
             # 모델 저장
             self.models[path] = model
@@ -179,9 +188,8 @@ class UserPreferenceClassifier:
         
         # 각 카테고리별 모델 저장
         for path, model in self.models.items():
-            model_path = f"{MODEL_PATH}_{path.replace('/', '_')}.pkl"
-            with open(model_path, 'wb') as f:
-                pickle.dump(model, f)
+            model_path = f"{MODEL_PATH}_{path.replace('/', '_')}.keras"
+            model.save(model_path)
             print(f"모델 저장 완료: {model_path}")
         
         # 스케일러 저장
@@ -231,7 +239,7 @@ class UserPreferenceClassifier:
         predictions = {}
         for path in ['/community', '/info', '/debate']:
             # 예측 확률 계산
-            probas = self.models[path].predict_proba(X_scaled)[0]
+            probas = self.models[path].predict(X_scaled)[0]
             
             # 태그별 확률 매핑
             tag_probas = {}
@@ -255,19 +263,21 @@ class UserPreferenceClassifier:
             
         # 각 카테고리별 모델 저장
         for path, model in self.models.items():
-            model_path = os.path.join(model_dir, f'user_preference_{path.replace("/", "_")}.pkl')
-            with open(model_path, 'wb') as f:
-                pickle.dump(model, f)
+            model_path = os.path.join(model_dir, f'user_preference_{path.replace("/", "_")}.keras')
+            model.save(model_path)
+            print(f"모델 저장 완료: {model_path}")
         
         # 스케일러 저장
         scaler_path = os.path.join(model_dir, 'scaler.pkl')
         with open(scaler_path, 'wb') as f:
             pickle.dump(self.scaler, f)
+        print(f"스케일러 저장 완료: {scaler_path}")
             
         # 태그 인코더 저장
         encoders_path = os.path.join(model_dir, 'tag_encoders.pkl')
         with open(encoders_path, 'wb') as f:
             pickle.dump(self.tag_encoders, f)
+        print(f"태그 인코더 저장 완료: {encoders_path}")
             
         print(f"모델이 {model_dir}에 저장되었습니다.")
     
@@ -276,11 +286,10 @@ class UserPreferenceClassifier:
         try:
             # 각 카테고리별 모델 로드
             for path in ['/community', '/info', '/debate']:
-                model_path = f"{MODEL_PATH}_{path.replace('/', '_')}.pkl"
+                model_path = f"{MODEL_PATH}_{path.replace('/', '_')}.keras"
                 if not os.path.exists(model_path):
                     raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {model_path}")
-                with open(model_path, 'rb') as f:
-                    self.models[path] = pickle.load(f)
+                self.models[path] = tf.keras.models.load_model(model_path)
                 print(f"모델 로드 완료: {path}")
             
             # 스케일러 로드

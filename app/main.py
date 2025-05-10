@@ -23,7 +23,7 @@ try:
 except Exception as e:
     logger.error(f"Model loading failed: {str(e)}")
 
-def smooth_distribution(d: dict, temperature: float = 1.8) -> dict:
+def smooth_distribution(d: dict, temperature: float = 2) -> dict:
     """확률 분포를 부드럽게 조정 (편차를 줄임)"""
     keys = list(d.keys())
     values = np.array(list(d.values()))
@@ -154,9 +154,9 @@ async def get_user_preferences_lightfm(uid: int) -> Dict[str, Any]:
                 response["discussion_preferences"][tag] = float(score)
         
         # 각 카테고리별 확률 분포 정규화
-        response["community_preferences"] = smooth_distribution(response["community_preferences"])
-        response["info_preferences"] = smooth_distribution(response["info_preferences"])
-        response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"])
+        response["community_preferences"] = smooth_distribution(response["community_preferences"], temperature=1)
+        response["info_preferences"] = smooth_distribution(response["info_preferences"], temperature=1)
+        response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"], temperature=1)
         
         logger.info(f"Final LightFM response: {response}")
         return response
