@@ -18,7 +18,9 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 import pickle
 
+
 MODEL_PATH = "app/model/saved_models/user_preference_classifier"
+
 
 class UserPreferenceClassifier:
     def __init__(self):

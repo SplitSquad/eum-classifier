@@ -9,6 +9,8 @@ from sklearn.preprocessing import StandardScaler
 import pickle
 from app.model.utils import preprocess_logs
 from app.model.db import fetch_all_logs, fetch_user_logs
+from collections import defaultdict
+from scipy.sparse import coo_matrix
 
 MODEL_PATH = "app/model/saved_models/user_preference_lightfm"
 
@@ -60,14 +62,42 @@ class UserPreferenceLightFM:
         
         # 상호작용 매트릭스 생성
         interactions = []
+        weights = []  # 가중치 리스트 추가
+        
+        # 사용자별 태그 클릭 수 계산
+        user_tag_counts = defaultdict(int)
         for log in logs:
             if log['tag'] and log['click_path'] == path and log['tag'] in self.tag_mapping[path]:
-                interactions.append((log['uid'], log['tag'], 1.0))
+                user_tag_counts[(log['uid'], log['tag'])] += 1
+        
+        # 상호작용과 가중치 생성
+        for (uid, tag), count in user_tag_counts.items():
+            interactions.append((uid, tag, 1.0))
+            weights.append(count)  # 클릭 수를 가중치로 사용
         
         # 상호작용 매트릭스 변환
-        (interactions_matrix, weights) = dataset.build_interactions(interactions)
+        (interactions_matrix, _) = dataset.build_interactions(interactions)
         
-        return dataset, interactions_matrix
+        # 가중치를 COO 형식으로 변환
+        user_mapping = dataset.mapping()[0]
+        item_mapping = dataset.mapping()[2]
+        
+        rows = []
+        cols = []
+        data = []
+        
+        for (uid, tag), weight in user_tag_counts.items():
+            if uid in user_mapping and tag in item_mapping:
+                rows.append(user_mapping[uid])
+                cols.append(item_mapping[tag])
+                data.append(weight)
+        
+        weight_matrix = coo_matrix(
+            (data, (rows, cols)),
+            shape=(len(user_mapping), len(item_mapping))
+        )
+        
+        return dataset, interactions_matrix, weight_matrix
 
     def train(self, X, y, tag_encoders):
         """모델 학습
@@ -118,7 +148,7 @@ class UserPreferenceLightFM:
                 print(f"- {param}: {value}")
             
             # 데이터셋 및 상호작용 준비
-            dataset, interactions = self._prepare_interactions(logs, path)
+            dataset, interactions, weights = self._prepare_interactions(logs, path)
             self.datasets[path] = dataset
             
             # 모델 초기화 및 학습
@@ -134,16 +164,37 @@ class UserPreferenceLightFM:
             # 모델 학습 시작
             print("\n학습 시작...")
             train_start = time.time()
-            model.fit(interactions, epochs=30, num_threads=4)
-            train_time = time.time() - train_start
             
-            # 모델 평가
-            from lightfm.evaluation import precision_at_k
-            precision = precision_at_k(model, interactions, k=5).mean()
+            # 에포크별 학습 및 평가
+            epochs = 30
+            best_precision = 0
+            best_epoch = 0
+            
+            for epoch in range(epochs):
+                # 학습
+                model.fit_partial(interactions, 
+                                sample_weight=weights,
+                                epochs=1,
+                                num_threads=4)
+                
+                # 평가
+                from lightfm.evaluation import precision_at_k, recall_at_k
+                precision = precision_at_k(model, interactions, k=5).mean()
+                recall = recall_at_k(model, interactions, k=5).mean()
+                
+                # 최고 성능 기록
+                if precision > best_precision:
+                    best_precision = precision
+                    best_epoch = epoch
+                
+                # 진행 상황 출력
+                print(f"Epoch {epoch+1}/{epochs} - Precision@5: {precision:.4f}, Recall@5: {recall:.4f}")
+            
+            train_time = time.time() - train_start
             
             print(f"\n학습 결과:")
             print(f"- 소요 시간: {train_time:.2f}초")
-            print(f"- Precision@5: {precision:.4f}")
+            print(f"- 최고 Precision@5: {best_precision:.4f} (Epoch {best_epoch+1})")
             
             # 모델 저장
             self.models[path] = model
@@ -224,21 +275,19 @@ class UserPreferenceLightFM:
                         scores = self.models[path].predict(user_id, item_ids)
                         print(f"예측 점수: {scores[:5]}...")
                         
+                        # 소프트맥스 정규화 적용
+                        exp_scores = np.exp(scores - np.max(scores))  # 수치 안정성을 위한 최대값 빼기
+                        normalized_scores = exp_scores / np.sum(exp_scores)
+                        
                         # 태그별 확률 매핑
                         tag_probas = {}
                         for tag in self.tag_mapping[path]:
                             if tag in item_mapping:
                                 item_id = item_mapping[tag]
-                                score = float(scores[item_id])
-                                # 점수를 양수로 변환
-                                tag_probas[tag] = np.exp(score)
+                                tag_probas[tag] = float(normalized_scores[item_id])
                             else:
                                 print(f"태그 {tag}가 {path} 데이터셋에 없습니다.")
-                                tag_probas[tag] = 1.0  # 기본값
-                        
-                        # 정규화
-                        total = sum(tag_probas.values())
-                        tag_probas = {k: v/total for k, v in tag_probas.items()}
+                                tag_probas[tag] = 1.0 / len(self.tag_mapping[path])
                     
                     print(f"태그별 확률: {list(tag_probas.items())[:5]}...")
                     
@@ -326,7 +375,38 @@ if __name__ == "__main__":
         
         # 2. 데이터 전처리
         print("\n=== 데이터 전처리 시작 ===")
-        X, y, tag_encoders = preprocess_logs(logs)
+        # 사용자별로 로그 그룹화
+        user_logs = defaultdict(list)
+        for log in logs:
+            user_logs[log['uid']].append(log)
+        
+        print(f"총 사용자 수: {len(user_logs)}")
+        
+        # 각 사용자별로 전처리 수행
+        X_list = []
+        y_list = defaultdict(list)
+        tag_encoders = {}
+        
+        for uid, user_data in tqdm(user_logs.items(), desc="사용자별 전처리"):
+            X_user, y_user, encoders = preprocess_logs(user_data)
+            if X_user is not None and y_user:
+                X_list.append(X_user)
+                for path, labels in y_user.items():
+                    y_list[path].extend(labels)
+                tag_encoders = encoders
+        
+        if not X_list:
+            raise ValueError("전처리된 데이터가 없습니다.")
+            
+        # 데이터 결합
+        X = np.vstack(X_list)
+        y = {path: np.array(labels) for path, labels in y_list.items()}
+        
+        print("\n전처리 결과:")
+        print(f"최종 피처 행렬 크기: {X.shape}")
+        print(f"사용된 유저 수: {len(X_list)}")
+        for path, labels in y.items():
+            print(f"{path} 레이블 벡터 크기: {labels.shape}")
         
         # 3. 모델 학습
         print("\n=== 모델 학습 시작 ===")
