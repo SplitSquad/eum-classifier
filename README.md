@@ -132,14 +132,8 @@ curl -X GET "http://localhost:8000/user/35/preferences"
 curl -X GET "http://localhost:8000/user/35/preferences/lightfm"
 ```
 
-## 라이선스
+# TODO
 
-MIT License
-
-## 기여 방법
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. 로그 개수 적은 사용자의 분류
+2. 유저데이터 서비스와 연결, 유저 정보를 분류에 반영
+3. 배포용 requirements.txt 작성 후 학습 알고리즘 수정 또는 제외
