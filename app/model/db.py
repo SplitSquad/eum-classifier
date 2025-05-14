@@ -18,7 +18,7 @@ def fetch_all_logs() -> List[Dict]:
     """전체 로그 데이터 조회 (API 기반)"""
     try:
         headers = {
-            "Authorization": LOG_SERVICE_TOKEN
+            "Debate": LOG_SERVICE_TOKEN
         }
         response = requests.get(f"{LOG_SERVICE_URL}/logs/all", headers=headers)
         print("API 응답:", response.text)
@@ -32,7 +32,7 @@ def fetch_user_logs(uid: int) -> List[Dict]:
     """특정 사용자의 로그 데이터 조회 (API 기반)"""
     try:
         headers = {
-            "Authorization": LOG_SERVICE_TOKEN
+            "Debate": LOG_SERVICE_TOKEN
         }
         response = requests.get(f"{LOG_SERVICE_URL}/logs/{uid}", headers=headers)
         print("API 응답:", response.text)
