@@ -17,11 +17,11 @@ jobs:
           echo "현재 디렉토리 구조 확인:"
           pwd
           ls -la
-          echo "eum-Classifier 디렉토리 확인:"
-          if [ -d "eum-Classifier" ]; then
-            ls -la eum-Classifier
+          echo "eum-classifier 디렉토리 확인:"
+          if [ -d "eum-classifier" ]; then
+            ls -la eum-classifier
           else
-            echo "eum-Classifier 디렉토리가 없습니다!"
+            echo "eum-classifier 디렉토리가 없습니다!"
             find . -type d -maxdepth 2
           fi
       - name: Configure AWS credentials
@@ -36,7 +36,7 @@ jobs:
       - name: Build, tag, and push image to Amazon ECR
         env:
           ECR_REGISTRY: 879657431997.dkr.ecr.ap-northeast-2.amazonaws.com
-          ECR_REPOSITORY: eum-Classifier
+          ECR_REPOSITORY: eum-classifier
           IMAGE_TAG: ${{ github.sha }}
         run: |
           # 디렉토리 구조 확인
@@ -48,9 +48,9 @@ jobs:
           if [ -f "Dockerfile" ]; then
             echo "루트 디렉토리에서 Dockerfile을 찾았습니다."
             docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          elif [ -f "eum-Classifier/Dockerfile" ]; then
-            echo "eum-Classifier 디렉토리에서 Dockerfile을 찾았습니다."
-            docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f eum-Classifier/Dockerfile eum-Classifier/
+          elif [ -f "eum-classifier/Dockerfile" ]; then
+            echo "eum-classifier 디렉토리에서 Dockerfile을 찾았습니다."
+            docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f eum-classifier/Dockerfile eum-classifier/
           else
             echo "ERROR: Dockerfile을 찾을 수 없습니다!"
             find . -name "Dockerfile" | sort
@@ -62,7 +62,7 @@ jobs:
       - name: Update manifest repository
         env:
           ECR_REGISTRY: 879657431997.dkr.ecr.ap-northeast-2.amazonaws.com
-          ECR_REPOSITORY: eum-Classifier
+          ECR_REPOSITORY: eum-classifier
           IMAGE_TAG: ${{ github.sha }}
           GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
           GIT_TOKEN: ${{ secrets.GIT_TOKEN }}
@@ -95,4 +95,4 @@ jobs:
           git commit -m "Update Classifier service image to ${IMAGE_TAG}"
           git push
           echo "매니페스트 레포지토리 업데이트 완료: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          echo "ArgoCD가 변경사항을 감지하여 자동으로 배포할 예정입니다."
+          echo "ArgoCD가 변경사항을 감지하여 자동으로 배포할 예정입니다." 
