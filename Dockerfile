@@ -2,9 +2,14 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # 시스템 패키지 설치
-RUN apt-get update && \
-    apt-get install -y git && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    gfortran
 
 # 의존성 파일 복사 및 설치
 COPY requirements.txt .
