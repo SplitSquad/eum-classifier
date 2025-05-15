@@ -19,7 +19,7 @@ tensorflow-io-gcs-filesystem==0.37.1
 tensorflow-estimator==2.12.0
 h5py==3.13.0
 
-lightfm @ git+https://github.com/lyst/lightfm.git@0c9c31e027b976beab2385e268b58010fff46096
+# lightfm @ git+https://github.com/lyst/lightfm.git@0c9c31e027b976beab2385e268b58010fff46096
 
 SQLAlchemy==1.4.23
 PyMySQL==1.1.0
