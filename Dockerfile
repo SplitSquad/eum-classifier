@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     libopenblas-dev \
     liblapack-dev \
     gfortran \
+    git \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
