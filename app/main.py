@@ -4,6 +4,8 @@ from app.model.classifier_model import UserPreferenceClassifier
 from app.model.lightfm_model import UserPreferenceLightFM
 from app.model.db import fetch_user_logs
 from app.model.utils import preprocess_logs
+from py_eureka_client import eureka_client
+from os import getenv
 import logging
 import numpy as np
 
@@ -167,3 +169,22 @@ async def get_user_preferences_lightfm(uid: int) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in get_user_preferences_lightfm: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("[WORKFLOW] Server started successfully")
+    await eureka_client.init_async(
+        eureka_server=getenv("EUREKA_IP","http://localhost:8761/eureka"),
+        app_name=getenv("EUREKA_APP_NAME","eum-classifier"),
+        instance_host=getenv("EUREKA_HOST","localhost"),
+        instance_port=int(getenv("EUREKA_PORT","8000"))
+    )
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("[WORKFLOW] Server shutting down")
+    await eureka_client.stop_async()
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
