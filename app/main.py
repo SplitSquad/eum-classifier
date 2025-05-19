@@ -5,7 +5,8 @@ from app.model.lightfm_model import UserPreferenceLightFM
 from app.model.db import fetch_user_logs, LOG_SERVICE_URL, LOG_SERVICE_TOKEN
 from app.model.utils import preprocess_logs
 from py_eureka_client import eureka_client
-from os import getenv
+from os import getenv, path
+from dotenv import load_dotenv
 import logging
 import numpy as np
 import requests
@@ -13,6 +14,44 @@ import requests
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# .env 파일 로드
+logger.info("[ENV] Starting environment variable loading...")
+env_path = path.join(path.dirname(path.dirname(__file__)), '.env')
+logger.debug(f"[ENV] Looking for .env file at: {env_path}")
+logger.debug(f"[ENV] .env file exists: {path.exists(env_path)}")
+
+load_dotenv(env_path)
+logger.info("[ENV] dotenv load completed")
+
+# 환경변수 로드 및 검증
+EUREKA_IP = getenv("EUREKA_IP")
+EUREKA_APP_NAME = getenv("EUREKA_APP_NAME")
+EUREKA_HOST = getenv("EUREKA_HOST")
+EUREKA_PORT = getenv("EUREKA_PORT")
+
+logger.debug("[ENV] Loaded environment variables:")
+logger.debug(f"[ENV] - EUREKA_IP: {EUREKA_IP}")
+logger.debug(f"[ENV] - EUREKA_APP_NAME: {EUREKA_APP_NAME}")
+logger.debug(f"[ENV] - EUREKA_HOST: {EUREKA_HOST}")
+logger.debug(f"[ENV] - EUREKA_PORT: {EUREKA_PORT}")
+
+# 기본값 설정
+if not EUREKA_IP:
+    logger.warning("[ENV] EUREKA_IP not found, using default: http://localhost:8761/eureka")
+    EUREKA_IP = "http://localhost:8761/eureka"
+
+if not EUREKA_APP_NAME:
+    logger.warning("[ENV] EUREKA_APP_NAME not found, using default: eum-classifier")
+    EUREKA_APP_NAME = "eum-classifier"
+
+if not EUREKA_HOST:
+    logger.warning("[ENV] EUREKA_HOST not found, using default: localhost")
+    EUREKA_HOST = "localhost"
+
+if not EUREKA_PORT:
+    logger.warning("[ENV] EUREKA_PORT not found, using default: 8003")
+    EUREKA_PORT = "8003"
 
 app = FastAPI()
 
@@ -175,22 +214,31 @@ async def get_user_preferences_lightfm(uid: int) -> Dict[str, Any]:
 @app.on_event("startup")
 async def startup_event():
     logger.info("[WORKFLOW] Server started successfully")
-    await eureka_client.init_async(
-        eureka_server=getenv("EUREKA_IP","http://localhost:8761/eureka"),
-        app_name=getenv("EUREKA_APP_NAME","eum-classifier"),
-        instance_host=getenv("EUREKA_HOST","localhost"),
-        instance_port=int(getenv("EUREKA_PORT","8003"))
-    )
-    logger.info("[WORKFLOW] Eureka client initialized")
-
-
+    
+    # Eureka 환경변수 로깅
+    logger.info("[EUREKA] Loading Eureka configuration...")
+    logger.debug(f"[EUREKA] Configuration values:")
+    logger.debug(f"[EUREKA] - Server: {EUREKA_IP}")
+    logger.debug(f"[EUREKA] - App Name: {EUREKA_APP_NAME}")
+    logger.debug(f"[EUREKA] - Host: {EUREKA_HOST}")
+    logger.debug(f"[EUREKA] - Port: {EUREKA_PORT}")
+    
+    try:
+        await eureka_client.init_async(
+            eureka_server=EUREKA_IP,
+            app_name=EUREKA_APP_NAME,
+            instance_host=EUREKA_HOST,
+            instance_port=int(EUREKA_PORT)
+        )
+        logger.info("[EUREKA] ✅ Eureka client initialized successfully")
+    except Exception as e:
+        logger.error(f"[EUREKA] ❌ Eureka client initialization failed: {str(e)}")
+        raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("[WORKFLOW] Server shutting down")
     await eureka_client.stop_async()
-
-
 
 if __name__ == "__main__":
     import uvicorn
