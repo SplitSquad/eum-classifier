@@ -2,12 +2,13 @@ from fastapi import FastAPI, HTTPException
 from typing import Dict, List, Any
 from app.model.classifier_model import UserPreferenceClassifier
 from app.model.lightfm_model import UserPreferenceLightFM
-from app.model.db import fetch_user_logs
+from app.model.db import fetch_user_logs, LOG_SERVICE_URL, LOG_SERVICE_TOKEN
 from app.model.utils import preprocess_logs
 from py_eureka_client import eureka_client
 from os import getenv
 import logging
 import numpy as np
+import requests
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -16,14 +17,15 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 # 모델 초기화
+logger.info("Initializing models...")
 classifier = UserPreferenceClassifier()
 lightfm = UserPreferenceLightFM()
 try:
     classifier.load_model()
     lightfm.load_model()
-    logger.info("Models loaded successfully")
+    logger.info("✅ Models loaded successfully")
 except Exception as e:
-    logger.error(f"Model loading failed: {str(e)}")
+    logger.error(f"❌ Model loading failed: {str(e)}")
 
 def smooth_distribution(d: dict, temperature: float = 3) -> dict:
     """확률 분포를 부드럽게 조정 (편차를 줄임)"""
