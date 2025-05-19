@@ -179,13 +179,18 @@ async def startup_event():
         eureka_server=getenv("EUREKA_IP","http://localhost:8761/eureka"),
         app_name=getenv("EUREKA_APP_NAME","eum-classifier"),
         instance_host=getenv("EUREKA_HOST","localhost"),
-        instance_port=int(getenv("EUREKA_PORT","8000"))
+        instance_port=int(getenv("EUREKA_PORT","8003"))
     )
+    logger.info("[WORKFLOW] Eureka client initialized")
+
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("[WORKFLOW] Server shutting down")
     await eureka_client.stop_async()
+
+
 
 if __name__ == "__main__":
     import uvicorn
