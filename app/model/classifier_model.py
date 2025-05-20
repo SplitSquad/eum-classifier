@@ -23,6 +23,48 @@ MODEL_PATH = "app/model/saved_models/user_preference_classifier"
 
 
 class UserPreferenceClassifier:
+    defaultPredictions = {
+                'community_preferences': {
+                    '관광/체험': 1/17,
+                    '교통/이동': 1/17,
+                    '기숙사/주거': 1/17,
+                    '대사관/응급': 1/17,
+                    '문화/생활': 1/17,
+                    '부동산/계약': 1/17,
+                    '비자/법률/노동': 1/17,
+                    '생활환경/편의': 1/17,
+                    '숙소/지역': 1/17,
+                    '식도락/맛집': 1/17,
+                    '알바/파트타임': 1/17,
+                    '이력/채용': 1/17,
+                    '잡페어/네트워킹': 1/17,
+                    '주거지 관리/유지': 1/17,
+                    '학사/캠퍼스': 1/17,
+                    '학업지원': 1/17,
+                    '행정/비자/서류': 1/17
+                },
+                
+                'info_preferences': {
+                    '교육': 1/8,
+                    '교통': 1/8,
+                    '금융/세금': 1/8,
+                    '비자/법률': 1/8,
+                    '쇼핑': 1/8,
+                    '의료/건강': 1/8,
+                    '주거/부동산': 1/8,
+                    '취업/직장': 1/8
+                },
+                'discussion_preferences': {
+                    '경제': 1/6,
+                    '과학/기술': 1/6,
+                    '생활/문화': 1/6,
+                    '스포츠': 1/6,
+                    '엔터테인먼트': 1/6,
+                    '정치/사회': 1/6
+                }
+            }
+
+
     def __init__(self):
         # GPU 사용 가능 여부 확인
         gpus = tf.config.list_physical_devices('GPU')
@@ -226,7 +268,9 @@ class UserPreferenceClassifier:
         user_logs = fetch_user_logs(uid)
         if not user_logs:
             print(f"사용자 {uid}의 로그 데이터가 없습니다.")
-            return None
+
+            predictions = self.defaultPredictions
+            return predictions
             
         # 데이터 전처리
         X, _, _ = preprocess_logs(user_logs)

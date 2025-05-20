@@ -86,10 +86,12 @@ async def get_user_preferences(uid: int) -> Dict[str, Any]:
         
         # 사용자의 웹로그 데이터 가져오기
         user_logs = fetch_user_logs(uid)
+
+        # 유저 웹로그가 없을 시 기본 예측 반환
         if not user_logs:
             logger.warning(f"No logs found for user {uid}")
-            raise HTTPException(status_code=404, detail=f"No logs found for user {uid}")
-        
+            return classifier.defaultPredictions
+
         logger.info(f"Found {len(user_logs)} logs for user {uid}")
         
         # 웹로그 전처리

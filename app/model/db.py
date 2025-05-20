@@ -13,6 +13,7 @@ logger.info("Starting environment variable loading process...")
 logger.debug(f"Current working directory: {os.getcwd()}")
 logger.debug(f".env file exists: {os.path.exists('.env')}")
 
+
 # .env 파일에서 환경변수 로드
 load_dotenv()
 logger.info("dotenv load completed")

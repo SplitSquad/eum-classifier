@@ -56,7 +56,7 @@ tensorboard==2.16.2
 tensorboard-data-server==0.7.2
 tensorflow==2.16.2
 tensorflow-estimator==2.12.0
-tensorflow-io-gcs-filesystem==0.37.1
+tensorflow-io-gcs-filesystem==0.31.0
 # Uncomment the following lines if you are using a Mac with Apple silicon
 # tensorflow-macos==2.16.2
 # tensorflow-metal==1.2.0
