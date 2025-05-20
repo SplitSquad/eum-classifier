@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException
 from typing import Dict, List, Any
 from app.model.classifier_model import UserPreferenceClassifier
 from app.model.lightfm_model import UserPreferenceLightFM
-from app.model.db import fetch_user_logs, LOG_SERVICE_URL, LOG_SERVICE_TOKEN
+from app.model.db import fetch_user_logs
+from app.model.userdata import fetch_user_preference_data
 from app.model.utils import preprocess_logs
 from py_eureka_client import eureka_client
 from os import getenv, path
@@ -133,6 +134,18 @@ async def get_user_preferences(uid: int) -> Dict[str, Any]:
             logger.info("Processing discussion preferences")
             for tag, score in predictions["discussion_preferences"].items():
                 response["discussion_preferences"][tag] = float(score)
+
+
+
+        # 유저 선호도 데이터 반영
+        user_preference_data = fetch_user_preference_data()
+
+        # 유저 선호도 데이터 추출
+        logger.info(f"user_preference_data: {user_preference_data}")
+
+        # TODO : 이후 유저 선호도 데이터 반영 추가 필요
+
+
         
         # 각 카테고리별 확률 분포 정규화
         response["community_preferences"] = smooth_distribution(response["community_preferences"], temperature=2)
