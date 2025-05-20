@@ -1,5 +1,5 @@
-from fastapi import FastAPI, HTTPException
-from typing import Dict, List, Any
+from fastapi import FastAPI, HTTPException, Header
+from typing import Dict, List, Any, Optional
 from app.model.classifier_model import UserPreferenceClassifier
 from app.model.lightfm_model import UserPreferenceLightFM
 from app.model.db import fetch_user_logs
@@ -17,13 +17,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # .env 파일 로드
-logger.info("[ENV] Starting environment variable loading...")
+logger.info("[MAIN] 환경 변수 로딩 시작")
 env_path = path.join(path.dirname(path.dirname(__file__)), '.env')
-logger.debug(f"[ENV] Looking for .env file at: {env_path}")
-logger.debug(f"[ENV] .env file exists: {path.exists(env_path)}")
+logger.debug(f"[MAIN] .env 파일 경로: {env_path}")
+logger.debug(f"[MAIN] .env 파일 존재 여부: {path.exists(env_path)}")
 
 load_dotenv(env_path)
-logger.info("[ENV] dotenv load completed")
+logger.info("[MAIN] dotenv 로드 완료")
 
 # 환경변수 로드 및 검증
 EUREKA_IP = getenv("EUREKA_IP")
@@ -31,41 +31,41 @@ EUREKA_APP_NAME = getenv("EUREKA_APP_NAME")
 EUREKA_HOST = getenv("EUREKA_HOST")
 EUREKA_PORT = getenv("EUREKA_PORT")
 
-logger.debug("[ENV] Loaded environment variables:")
-logger.debug(f"[ENV] - EUREKA_IP: {EUREKA_IP}")
-logger.debug(f"[ENV] - EUREKA_APP_NAME: {EUREKA_APP_NAME}")
-logger.debug(f"[ENV] - EUREKA_HOST: {EUREKA_HOST}")
-logger.debug(f"[ENV] - EUREKA_PORT: {EUREKA_PORT}")
+logger.debug("[MAIN] 로드된 환경변수:")
+logger.debug(f"[MAIN] - EUREKA_IP: {EUREKA_IP}")
+logger.debug(f"[MAIN] - EUREKA_APP_NAME: {EUREKA_APP_NAME}")
+logger.debug(f"[MAIN] - EUREKA_HOST: {EUREKA_HOST}")
+logger.debug(f"[MAIN] - EUREKA_PORT: {EUREKA_PORT}")
 
 # 기본값 설정
 if not EUREKA_IP:
-    logger.warning("[ENV] EUREKA_IP not found, using default: http://localhost:8761/eureka")
+    logger.warning("[MAIN] EUREKA_IP가 없음, 기본값 사용: http://localhost:8761/eureka")
     EUREKA_IP = "http://localhost:8761/eureka"
 
 if not EUREKA_APP_NAME:
-    logger.warning("[ENV] EUREKA_APP_NAME not found, using default: eum-classifier")
+    logger.warning("[MAIN] EUREKA_APP_NAME이 없음, 기본값 사용: eum-classifier")
     EUREKA_APP_NAME = "eum-classifier"
 
 if not EUREKA_HOST:
-    logger.warning("[ENV] EUREKA_HOST not found, using default: localhost")
+    logger.warning("[MAIN] EUREKA_HOST가 없음, 기본값 사용: localhost")
     EUREKA_HOST = "localhost"
 
 if not EUREKA_PORT:
-    logger.warning("[ENV] EUREKA_PORT not found, using default: 8003")
+    logger.warning("[MAIN] EUREKA_PORT가 없음, 기본값 사용: 8003")
     EUREKA_PORT = "8003"
 
 app = FastAPI()
 
 # 모델 초기화
-logger.info("Initializing models...")
+logger.info("[MAIN] 모델 초기화 시작")
 classifier = UserPreferenceClassifier()
 lightfm = UserPreferenceLightFM()
 try:
     classifier.load_model()
     lightfm.load_model()
-    logger.info("✅ Models loaded successfully")
+    logger.info("[MAIN] ✅ 모델 로드 성공")
 except Exception as e:
-    logger.error(f"❌ Model loading failed: {str(e)}")
+    logger.error(f"[MAIN] ❌ 모델 로드 실패: {str(e)}")
 
 def smooth_distribution(d: dict, temperature: float = 3) -> dict:
     """확률 분포를 부드럽게 조정 (편차를 줄임)"""
@@ -80,34 +80,40 @@ def smooth_distribution(d: dict, temperature: float = 3) -> dict:
     return {k: float(round(v, 5)) for k, v in zip(keys, normalized)}
 
 @app.get("/user/{uid}/preferences")
-async def get_user_preferences(uid: int) -> Dict[str, Any]:
+async def get_user_preferences(uid: int, authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
     """사용자의 성향을 분석하여 반환"""
     try:
-        logger.info(f"Processing request for user {uid}")
+        logger.info(f"[MAIN] 사용자 {uid}의 성향 분석 요청 처리 시작")
+        
+        # 유저 선호도 데이터 조회 (웹로그와 관계없이 항상 조회)
+        logger.info("[MAIN] 유저 선호도 데이터 조회 시작")
+        user_preference_data = fetch_user_preference_data(authorization)
+        logger.info(f"[MAIN] 유저 선호도 데이터: {user_preference_data}")
         
         # 사용자의 웹로그 데이터 가져오기
+        logger.info(f"[MAIN] 사용자 {uid}의 웹로그 데이터 조회 시작")
         user_logs = fetch_user_logs(uid)
 
         # 유저 웹로그가 없을 시 기본 예측 반환
         if not user_logs:
-            logger.warning(f"No logs found for user {uid}")
+            logger.warning(f"[MAIN] 사용자 {uid}의 웹로그가 없음, 기본 예측값 반환")
             return classifier.defaultPredictions
 
-        logger.info(f"Found {len(user_logs)} logs for user {uid}")
+        logger.info(f"[MAIN] 사용자 {uid}의 웹로그 {len(user_logs)}개 발견")
         
         # 웹로그 전처리
-        logger.info("Starting log preprocessing")
+        logger.info("[MAIN] 웹로그 전처리 시작")
         X, _, _ = preprocess_logs(user_logs)
-        logger.info(f"Preprocessing completed. Feature shape: {X.shape}")
+        logger.info(f"[MAIN] 웹로그 전처리 완료. 특성 shape: {X.shape}")
         
         # classifier로 예측
-        logger.info("Starting prediction")
+        logger.info("[MAIN] 예측 시작")
         predictions = classifier.predict(uid)
         if not predictions:
-            logger.warning(f"No predictions available for user {uid}")
+            logger.warning(f"[MAIN] 사용자 {uid}에 대한 예측값 없음")
             raise HTTPException(status_code=404, detail=f"No predictions available for user {uid}")
         
-        logger.info(f"Predictions received: {predictions}")
+        logger.info(f"[MAIN] 예측 결과 수신: {predictions}")
         
         # 결과 포맷 변환
         response = {
@@ -119,71 +125,64 @@ async def get_user_preferences(uid: int) -> Dict[str, Any]:
         
         # community_preferences 처리
         if "community_preferences" in predictions:
-            logger.info("Processing community preferences")
+            logger.info("[MAIN] 커뮤니티 선호도 처리")
             for tag, score in predictions["community_preferences"].items():
                 response["community_preferences"][tag] = float(score)
         
         # info_preferences 처리
         if "info_preferences" in predictions:
-            logger.info("Processing info preferences")
+            logger.info("[MAIN] 정보 선호도 처리")
             for tag, score in predictions["info_preferences"].items():
                 response["info_preferences"][tag] = float(score)
         
         # discussion_preferences 처리
         if "discussion_preferences" in predictions:
-            logger.info("Processing discussion preferences")
+            logger.info("[MAIN] 토론 선호도 처리")
             for tag, score in predictions["discussion_preferences"].items():
                 response["discussion_preferences"][tag] = float(score)
 
-
-
-        # 유저 선호도 데이터 반영
-        user_preference_data = fetch_user_preference_data()
-
-        # 유저 선호도 데이터 추출
-        logger.info(f"user_preference_data: {user_preference_data}")
-
         # TODO : 이후 유저 선호도 데이터 반영 추가 필요
-
-
         
         # 각 카테고리별 확률 분포 정규화
+        logger.info("[MAIN] 확률 분포 정규화 시작")
         response["community_preferences"] = smooth_distribution(response["community_preferences"], temperature=2)
         response["info_preferences"] = smooth_distribution(response["info_preferences"], temperature=4)
         response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"], temperature=4)
+        logger.info("[MAIN] 확률 분포 정규화 완료")
         
-        logger.info(f"Final response: {response}")
+        logger.info(f"[MAIN] 최종 응답: {response}")
         return response
         
     except ValueError as e:
-        logger.error(f"ValueError in get_user_preferences: {str(e)}")
+        logger.error(f"[MAIN] ValueError 발생: {str(e)}")
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Error in get_user_preferences: {str(e)}", exc_info=True)
+        logger.error(f"[MAIN] 오류 발생: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/user/{uid}/preferences/lightfm")
-async def get_user_preferences_lightfm(uid: int) -> Dict[str, Any]:
+async def get_user_preferences_lightfm(uid: int, authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
     """LightFM 모델을 사용하여 사용자의 성향을 분석하여 반환"""
     try:
-        logger.info(f"Processing LightFM request for user {uid}")
+        logger.info(f"[MAIN] LightFM 사용자 {uid}의 성향 분석 요청 처리 시작")
         
         # 사용자의 웹로그 데이터 가져오기
+        logger.info(f"[MAIN] 사용자 {uid}의 웹로그 데이터 조회 시작")
         user_logs = fetch_user_logs(uid)
         if not user_logs:
-            logger.warning(f"No logs found for user {uid}")
+            logger.warning(f"[MAIN] 사용자 {uid}의 웹로그가 없음")
             raise HTTPException(status_code=404, detail=f"No logs found for user {uid}")
         
-        logger.info(f"Found {len(user_logs)} logs for user {uid}")
+        logger.info(f"[MAIN] 사용자 {uid}의 웹로그 {len(user_logs)}개 발견")
         
         # LightFM 모델로 예측
-        logger.info("Starting LightFM prediction")
+        logger.info("[MAIN] LightFM 예측 시작")
         predictions = lightfm.predict(uid)
         if not predictions:
-            logger.warning(f"No predictions available for user {uid}")
+            logger.warning(f"[MAIN] 사용자 {uid}에 대한 LightFM 예측값 없음")
             raise HTTPException(status_code=404, detail=f"No predictions available for user {uid}")
         
-        logger.info(f"LightFM predictions received: {predictions}")
+        logger.info(f"[MAIN] LightFM 예측 결과 수신: {predictions}")
         
         # 결과 포맷 변환
         response = {
@@ -195,48 +194,50 @@ async def get_user_preferences_lightfm(uid: int) -> Dict[str, Any]:
         
         # community_preferences 처리
         if "community_preferences" in predictions:
-            logger.info("Processing community preferences")
+            logger.info("[MAIN] LightFM 커뮤니티 선호도 처리")
             for tag, score in predictions["community_preferences"].items():
                 response["community_preferences"][tag] = float(score)
         
         # info_preferences 처리
         if "info_preferences" in predictions:
-            logger.info("Processing info preferences")
+            logger.info("[MAIN] LightFM 정보 선호도 처리")
             for tag, score in predictions["info_preferences"].items():
                 response["info_preferences"][tag] = float(score)
         
         # discussion_preferences 처리
         if "discussion_preferences" in predictions:
-            logger.info("Processing discussion preferences")
+            logger.info("[MAIN] LightFM 토론 선호도 처리")
             for tag, score in predictions["discussion_preferences"].items():
                 response["discussion_preferences"][tag] = float(score)
         
         # 각 카테고리별 확률 분포 정규화
+        logger.info("[MAIN] LightFM 확률 분포 정규화 시작")
         response["community_preferences"] = smooth_distribution(response["community_preferences"], temperature=2)
         response["info_preferences"] = smooth_distribution(response["info_preferences"], temperature=2)
         response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"], temperature=2)
+        logger.info("[MAIN] LightFM 확률 분포 정규화 완료")
         
-        logger.info(f"Final LightFM response: {response}")
+        logger.info(f"[MAIN] LightFM 최종 응답: {response}")
         return response
         
     except ValueError as e:
-        logger.error(f"ValueError in get_user_preferences_lightfm: {str(e)}")
+        logger.error(f"[MAIN] LightFM ValueError 발생: {str(e)}")
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Error in get_user_preferences_lightfm: {str(e)}", exc_info=True)
+        logger.error(f"[MAIN] LightFM 오류 발생: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("[WORKFLOW] Server started successfully")
+    logger.info("[MAIN] 서버 시작")
     
     # Eureka 환경변수 로깅
-    logger.info("[EUREKA] Loading Eureka configuration...")
-    logger.debug(f"[EUREKA] Configuration values:")
-    logger.debug(f"[EUREKA] - Server: {EUREKA_IP}")
-    logger.debug(f"[EUREKA] - App Name: {EUREKA_APP_NAME}")
-    logger.debug(f"[EUREKA] - Host: {EUREKA_HOST}")
-    logger.debug(f"[EUREKA] - Port: {EUREKA_PORT}")
+    logger.info("[MAIN] Eureka 설정 로딩")
+    logger.debug(f"[MAIN] Eureka 설정값:")
+    logger.debug(f"[MAIN] - Server: {EUREKA_IP}")
+    logger.debug(f"[MAIN] - App Name: {EUREKA_APP_NAME}")
+    logger.debug(f"[MAIN] - Host: {EUREKA_HOST}")
+    logger.debug(f"[MAIN] - Port: {EUREKA_PORT}")
     
     try:
         await eureka_client.init_async(
@@ -245,14 +246,14 @@ async def startup_event():
             instance_host=EUREKA_HOST,
             instance_port=int(EUREKA_PORT)
         )
-        logger.info("[EUREKA] ✅ Eureka client initialized successfully")
+        logger.info("[MAIN] ✅ Eureka 클라이언트 초기화 성공")
     except Exception as e:
-        logger.error(f"[EUREKA] ❌ Eureka client initialization failed: {str(e)}")
+        logger.error(f"[MAIN] ❌ Eureka 클라이언트 초기화 실패: {str(e)}")
         raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    logger.info("[WORKFLOW] Server shutting down")
+    logger.info("[MAIN] 서버 종료")
     await eureka_client.stop_async()
 
 if __name__ == "__main__":
