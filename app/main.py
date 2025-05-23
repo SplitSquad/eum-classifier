@@ -85,10 +85,6 @@ async def get_user_preferences(uid: int, authorization: Optional[str] = Header(N
     try:
         logger.info(f"[MAIN] 사용자 {uid}의 성향 분석 요청 처리 시작")
         
-        # 유저 선호도 데이터 조회 (웹로그와 관계없이 항상 조회)
-        logger.info("[MAIN] 유저 선호도 데이터 조회 시작")
-        user_preference_data = fetch_user_preference_data(authorization)
-        logger.info(f"[MAIN] 유저 선호도 데이터: {user_preference_data}")
         
         # 사용자의 웹로그 데이터 가져오기
         logger.info(f"[MAIN] 사용자 {uid}의 웹로그 데이터 조회 시작")
@@ -97,59 +93,132 @@ async def get_user_preferences(uid: int, authorization: Optional[str] = Header(N
         # 유저 웹로그가 없을 시 기본 예측 반환
         if not user_logs:
             logger.warning(f"[MAIN] 사용자 {uid}의 웹로그가 없음, 기본 예측값 반환")
-            return classifier.defaultPredictions
+            response = classifier.defaultPredictions
 
-        logger.info(f"[MAIN] 사용자 {uid}의 웹로그 {len(user_logs)}개 발견")
-        
-        # 웹로그 전처리
-        logger.info("[MAIN] 웹로그 전처리 시작")
-        X, _, _ = preprocess_logs(user_logs)
-        logger.info(f"[MAIN] 웹로그 전처리 완료. 특성 shape: {X.shape}")
-        
-        # classifier로 예측
-        logger.info("[MAIN] 예측 시작")
-        predictions = classifier.predict(uid)
-        if not predictions:
-            logger.warning(f"[MAIN] 사용자 {uid}에 대한 예측값 없음")
-            raise HTTPException(status_code=404, detail=f"No predictions available for user {uid}")
-        
-        logger.info(f"[MAIN] 예측 결과 수신: {predictions}")
-        
-        # 결과 포맷 변환
-        response = {
-            "uid": uid,
-            "community_preferences": {},
-            "info_preferences": {},
-            "discussion_preferences": {}
-        }
-        
-        # community_preferences 처리
-        if "community_preferences" in predictions:
-            logger.info("[MAIN] 커뮤니티 선호도 처리")
-            for tag, score in predictions["community_preferences"].items():
-                response["community_preferences"][tag] = float(score)
-        
-        # info_preferences 처리
-        if "info_preferences" in predictions:
-            logger.info("[MAIN] 정보 선호도 처리")
-            for tag, score in predictions["info_preferences"].items():
-                response["info_preferences"][tag] = float(score)
-        
-        # discussion_preferences 처리
-        if "discussion_preferences" in predictions:
-            logger.info("[MAIN] 토론 선호도 처리")
-            for tag, score in predictions["discussion_preferences"].items():
-                response["discussion_preferences"][tag] = float(score)
+        # 유저 웹로그가 있을 시 예측 반환
+        else:
+            logger.info(f"[MAIN] 사용자 {uid}의 웹로그 {len(user_logs)}개 발견")
+            
+            # 웹로그 전처리
+            logger.info("[MAIN] 웹로그 전처리 시작")
+            X, _, _ = preprocess_logs(user_logs)
+            logger.info(f"[MAIN] 웹로그 전처리 완료. 특성 shape: {X.shape}")
+            
+            # classifier로 예측
+            logger.info("[MAIN] 예측 시작")
+            predictions = classifier.predict(uid)
+            if not predictions:
+                logger.warning(f"[MAIN] 사용자 {uid}에 대한 예측값 없음")
+                raise HTTPException(status_code=404, detail=f"No predictions available for user {uid}")
+            
+            logger.info(f"[MAIN] 예측 결과 수신: {predictions}")
+            
+            # 결과 포맷 변환
+            response = {
+                "uid": uid,
+                "community_preferences": {},
+                "info_preferences": {},
+                "discussion_preferences": {}
+            }
+            
+            # community_preferences 처리
+            if "community_preferences" in predictions:
+                logger.info("[MAIN] 커뮤니티 선호도 처리")
+                for tag, score in predictions["community_preferences"].items():
+                    response["community_preferences"][tag] = float(score)
+            
+            # info_preferences 처리
+            if "info_preferences" in predictions:
+                logger.info("[MAIN] 정보 선호도 처리")
+                for tag, score in predictions["info_preferences"].items():
+                    response["info_preferences"][tag] = float(score)
+            
+            # discussion_preferences 처리
+            if "discussion_preferences" in predictions:
+                logger.info("[MAIN] 토론 선호도 처리")
+                for tag, score in predictions["discussion_preferences"].items():
+                    response["discussion_preferences"][tag] = float(score)
+                    # 각 카테고리별 확률 분포 정규화
+            
+            logger.info("[MAIN] 확률 분포 정규화 시작")
+            response["community_preferences"] = smooth_distribution(response["community_preferences"], temperature=2)
+            response["info_preferences"] = smooth_distribution(response["info_preferences"], temperature=4)
+            response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"], temperature=4)
+            logger.info("[MAIN] 확률 분포 정규화 완료")
 
-        # TODO : 이후 유저 선호도 데이터 반영 추가 필요
-        
-        # 각 카테고리별 확률 분포 정규화
-        logger.info("[MAIN] 확률 분포 정규화 시작")
-        response["community_preferences"] = smooth_distribution(response["community_preferences"], temperature=2)
-        response["info_preferences"] = smooth_distribution(response["info_preferences"], temperature=4)
-        response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"], temperature=4)
-        logger.info("[MAIN] 확률 분포 정규화 완료")
-        
+
+        # 유저 선호도 데이터 조회 (웹로그와 관계없이 항상 조회)
+        logger.info("[MAIN] 유저 선호도 데이터 조회 시작")
+        user_preference_data = fetch_user_preference_data(authorization)
+        logger.info(f"[MAIN] 유저 선호도 데이터: {user_preference_data}")
+
+        # 사용자 관심사 기반 선호도 부스트
+        if user_preference_data and 'onBoardingPreference' in user_preference_data:
+            try:
+                import json
+                on_boarding_data = json.loads(user_preference_data['onBoardingPreference'])
+                user_interests = on_boarding_data.get('interests', [])
+                
+                # ID와 NAME 매핑
+                id_to_name_map = {
+                    # 커뮤니티 태그
+                    'tourism': '관광/체험',
+                    'food_tour': '식도락/맛집',
+                    'transportation': '교통/이동',
+                    'accommodation': '숙소/지역정보',
+                    'embassy': '대사관/응급',
+                    'realestate': '부동산/계약',
+                    'living_env': '생활환경/편의',
+                    'cultural_living': '문화/생활',
+                    'housing_mgmt': '주거지 관리/유지',
+                    'academic': '학사/캠퍼스',
+                    'study_support': '학업지원/시설',
+                    'admin_visa': '행정/비자/서류',
+                    'dormitory': '기숙사/주거',
+                    'resume': '이력/채용준비',
+                    'visa_law': '비자/법률/노동',
+                    'job_networking': '잡페어/네트워킹',
+                    'part_time': '알바/파트타임',
+                    
+                    # 토론 카테고리
+                    'politics': '정치/사회',
+                    'economy': '경제',
+                    'life_culture': '생활/문화',
+                    'science_tech': '과학/기술',
+                    'sports_news': '스포츠',
+                    'entertainment_news': '엔터테인먼트',
+                    
+                    # 정보 카테고리
+                    'transportation_info': '교통',
+                    'visa_legal': '비자/법률',
+                    'finance_tax': '금융/세금',
+                    'education_info': '교육',
+                    'housing_realestate': '주거/부동산',
+                    'healthcare': '의료/건강',
+                    'shopping_info': '쇼핑',
+                    'employment_workplace': '취업/직장'
+                }
+                
+                # 관심사 기반 선호도 부스트
+                for interest_id in user_interests:
+                    if interest_id in id_to_name_map:
+                        interest_name = id_to_name_map[interest_id]
+                        # 각 카테고리에서 해당 name을 찾아 부스트
+                        for category in ['community_preferences', 'discussion_preferences', 'info_preferences']:
+                            if interest_name in response[category]:
+                                response[category][interest_name] *= 2
+                                logger.info(f"[MAIN] {interest_id}({interest_name}) 태그 부스트 적용")
+                
+                # 부스트 후 다시 정규화
+                
+                #response["community_preferences"] = smooth_distribution(response["community_preferences"], temperature=2)
+                #response["info_preferences"] = smooth_distribution(response["info_preferences"], temperature=4)
+                #response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"], temperature=4)
+                
+                logger.info("[MAIN] 관심사 기반 선호도 부스트 적용 완료")
+            except Exception as e:
+                logger.error(f"[MAIN] 관심사 기반 선호도 부스트 적용 중 오류 발생: {str(e)}")
+
         logger.info(f"[MAIN] 최종 응답: {response}")
         return response
         

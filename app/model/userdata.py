@@ -99,8 +99,6 @@ class UserDataService:
             
             logger.info("[USERDATA] 사용자 선호도 데이터 조회 성공")
             logger.debug(f"[USERDATA] 조회된 레코드 수: {len(data)}")
-            if data:
-                logger.debug(f"[USERDATA] 샘플 데이터: {data[0] if isinstance(data, list) else data}")
             
             return data
         except Exception as e:

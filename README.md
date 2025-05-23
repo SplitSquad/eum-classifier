@@ -104,10 +104,6 @@ createdb eum_classifier
 uvicorn app.main:app --reload
 ```
 
-3. API 문서 확인
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
 ### 모델 학습
 
 1. 신경망 모델 학습
