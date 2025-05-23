@@ -268,7 +268,6 @@ class UserPreferenceClassifier:
         user_logs = fetch_user_logs(uid)
         if not user_logs:
             print(f"사용자 {uid}의 로그 데이터가 없습니다.")
-
             predictions = self.defaultPredictions
             return predictions
             
@@ -290,6 +289,9 @@ class UserPreferenceClassifier:
             # 태그별 확률 매핑
             tag_probas = {}
             for tag, prob in zip(self.tag_encoders[path].classes_, probas):
+                # '학업지원'을 '학업지원/시설'로 매핑
+                if tag == '학업지원':
+                    tag = '학업지원/시설'
                 tag_probas[tag] = float(prob)
             
             # 결과 저장
