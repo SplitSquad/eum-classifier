@@ -206,14 +206,14 @@ async def get_user_preferences(uid: int, authorization: Optional[str] = Header(N
                         # 각 카테고리에서 해당 name을 찾아 부스트
                         for category in ['community_preferences', 'discussion_preferences', 'info_preferences']:
                             if interest_name in response[category]:
-                                response[category][interest_name] *= 2
+                                response[category][interest_name] *= 5
                                 logger.info(f"[MAIN] {interest_id}({interest_name}) 태그 부스트 적용")
                 
                 # 부스트 후 다시 정규화
                 
-                #response["community_preferences"] = smooth_distribution(response["community_preferences"], temperature=2)
-                #response["info_preferences"] = smooth_distribution(response["info_preferences"], temperature=4)
-                #response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"], temperature=4)
+                response["community_preferences"] = smooth_distribution(response["community_preferences"], temperature=2)
+                response["info_preferences"] = smooth_distribution(response["info_preferences"], temperature=4)
+                response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"], temperature=4)
                 
                 logger.info("[MAIN] 관심사 기반 선호도 부스트 적용 완료")
             except Exception as e:
