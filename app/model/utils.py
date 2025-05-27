@@ -121,7 +121,7 @@ def preprocess_logs(logs):
     user_ids = []
     
     for user_id, user_data in user_logs.items():
-        if len(user_data) < 5:  # 최소 5개의 로그가 있는 유저만 사용
+        if len(user_data) < 1:  # 최소 1개의 로그가 있는 유저만 사용
             continue
             
         user_ids.append(user_id)
