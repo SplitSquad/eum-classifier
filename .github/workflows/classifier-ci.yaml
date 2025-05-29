@@ -1,4 +1,5 @@
 name: Classifier CI to ECR
+
 on:
   push:
     branches:
@@ -6,12 +7,15 @@ on:
     paths:
       - '**'
   workflow_dispatch:
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Check directory structure
         run: |
           echo "현재 디렉토리 구조 확인:"
@@ -24,15 +28,18 @@ jobs:
             echo "eum-classifier 디렉토리가 없습니다!"
             find . -type d -maxdepth 2
           fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-2
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
       - name: Build, tag, and push image to Amazon ECR
         env:
           ECR_REGISTRY: 879657431997.dkr.ecr.ap-northeast-2.amazonaws.com
@@ -44,6 +51,7 @@ jobs:
           pwd
           echo "파일 목록:"
           ls -la
+
           # Dockerfile 위치 확인
           if [ -f "Dockerfile" ]; then
             echo "루트 디렉토리에서 Dockerfile을 찾았습니다."
@@ -56,10 +64,12 @@ jobs:
             find . -name "Dockerfile" | sort
             exit 1
           fi
+
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-      - name: Update manifest repository
+
+      - name: Update Helm Chart Values
         env:
           ECR_REGISTRY: 879657431997.dkr.ecr.ap-northeast-2.amazonaws.com
           ECR_REPOSITORY: eum-classifier
@@ -70,29 +80,34 @@ jobs:
         run: |
           # 매니페스트 레포지토리 클론
           git clone https://${GIT_USERNAME}:${GIT_TOKEN}@${MANIFEST_REPO} manifest-repo
-          # 디렉토리 구조 확인 (디버깅 용도)
-          echo "매니페스트 레포지토리 디렉토리 구조:"
-          ls -la manifest-repo
-          # eum-ai/classifier 디렉토리로 이동 및 deployment.yaml 파일 업데이트
-          cd manifest-repo/eum-ai/classifier || { echo "eum-ai/classifier 디렉토리가 없습니다"; exit 1; }
-          # deployment.yaml 파일이 있는지 확인
-          if [ -f "deployment.yaml" ]; then
-            echo "deployment.yaml 파일 발견 - 이미지 태그 업데이트 중..."
-            sed -i "s|image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:.*|image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}|g" deployment.yaml
-            echo "업데이트된 이미지 태그:"
-            grep -A1 "image:" deployment.yaml
+
+          # 클론한 레포지토리로 이동
+          cd manifest-repo
+
+          # Git 설정
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+          # helm-charts/eum-ai 디렉토리로 이동
+          cd helm-charts/eum-ai || { echo "helm-charts/eum-ai 디렉토리가 없습니다"; exit 1; }
+
+          # values.yaml 파일에서 classifier 서비스의 이미지 태그 업데이트
+          if [ -f "values.yaml" ]; then
+            echo "values.yaml 파일 발견 - classifier 이미지 태그 업데이트 중..."
+            
+            # yq를 사용하여 classifier 서비스의 이미지 태그 업데이트
+            yq eval ".services.classifier.image.tag = \"${IMAGE_TAG}\"" -i values.yaml
+            
+            echo "업데이트된 classifier 이미지 설정:"
+            yq eval ".services.classifier.image" values.yaml
           else
-            echo "ERROR: deployment.yaml 파일이 없습니다!"
-            echo "디렉토리 내용:"
-            ls -la
+            echo "ERROR: values.yaml 파일을 찾을 수 없습니다!"
             exit 1
           fi
+
           # 변경사항 커밋 및 푸시
-          cd ../..  # 매니페스트 레포지토리 루트로 이동
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git add .
-          git commit -m "Update classifier service image to ${IMAGE_TAG}"
-          git push
-          echo "매니페스트 레포지토리 업데이트 완료: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          echo "ArgoCD가 변경사항을 감지하여 자동으로 배포할 예정입니다." 
+          git add values.yaml
+          git commit -m "Update classifier image tag to ${IMAGE_TAG}"
+          git push origin main
+
+          echo "Helm 차트 업데이트 완료: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
