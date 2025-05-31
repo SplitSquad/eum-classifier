@@ -133,3 +133,5 @@ curl -X GET "http://localhost:8000/user/35/preferences/lightfm"
 1. 로그 개수 적은 사용자의 분류
 2. 유저데이터 서비스와 연결, 유저 정보를 분류에 반영
 3. 배포용 requirements.txt 작성 후 학습 알고리즘 수정 또는 제외
+
+#test
