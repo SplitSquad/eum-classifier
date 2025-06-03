@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 import logging
 import numpy as np
 import requests
+import time
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -83,12 +84,15 @@ def smooth_distribution(d: dict, temperature: float = 3) -> dict:
 async def get_user_preferences(uid: int, authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
     """사용자의 성향을 분석하여 반환"""
     try:
+        total_start_time = time.time()
         logger.info(f"[MAIN] 사용자 {uid}의 성향 분석 요청 처리 시작")
         
-        
         # 사용자의 웹로그 데이터 가져오기
+        api_start_time = time.time()
         logger.info(f"[MAIN] 사용자 {uid}의 웹로그 데이터 조회 시작")
         user_logs = fetch_user_logs(uid)
+        api_end_time = time.time()
+        logger.info(f"[MAIN] API 데이터 요청 소요 시간: {api_end_time - api_start_time:.2f}초")
 
         # 유저 웹로그가 없을 시 기본 예측 반환
         if not user_logs:
@@ -100,13 +104,20 @@ async def get_user_preferences(uid: int, authorization: Optional[str] = Header(N
             logger.info(f"[MAIN] 사용자 {uid}의 웹로그 {len(user_logs)}개 발견")
             
             # 웹로그 전처리
+            preprocess_start_time = time.time()
             logger.info("[MAIN] 웹로그 전처리 시작")
             X, _, _ = preprocess_logs(user_logs)
+            preprocess_end_time = time.time()
+            logger.info(f"[MAIN] 웹로그 전처리 소요 시간: {preprocess_end_time - preprocess_start_time:.2f}초")
             logger.info(f"[MAIN] 웹로그 전처리 완료. 특성 shape: {X.shape}")
             
             # classifier로 예측
+            predict_start_time = time.time()
             logger.info("[MAIN] 예측 시작")
             predictions = classifier.predict(uid)
+            predict_end_time = time.time()
+            logger.info(f"[MAIN] 예측 처리 소요 시간: {predict_end_time - predict_start_time:.2f}초")
+            
             if not predictions:
                 logger.warning(f"[MAIN] 사용자 {uid}에 대한 예측값 없음")
                 raise HTTPException(status_code=404, detail=f"No predictions available for user {uid}")
@@ -148,8 +159,11 @@ async def get_user_preferences(uid: int, authorization: Optional[str] = Header(N
 
 
         # 유저 선호도 데이터 조회 (웹로그와 관계없이 항상 조회)
+        user_pref_start_time = time.time()
         logger.info("[MAIN] 유저 선호도 데이터 조회 시작")
         user_preference_data = fetch_user_preference_data(authorization)
+        user_pref_end_time = time.time()
+        logger.info(f"[MAIN] 유저 선호도 데이터 조회 소요 시간: {user_pref_end_time - user_pref_start_time:.2f}초")
         logger.info(f"[MAIN] 유저 선호도 데이터: {user_preference_data}")
 
         # 사용자 관심사 기반 선호도 부스트
@@ -210,7 +224,6 @@ async def get_user_preferences(uid: int, authorization: Optional[str] = Header(N
                                 logger.info(f"[MAIN] {interest_id}({interest_name}) 태그 부스트 적용")
                 
                 # 부스트 후 다시 정규화
-                
                 response["community_preferences"] = smooth_distribution(response["community_preferences"], temperature=2)
                 response["info_preferences"] = smooth_distribution(response["info_preferences"], temperature=4)
                 response["discussion_preferences"] = smooth_distribution(response["discussion_preferences"], temperature=4)
@@ -219,6 +232,8 @@ async def get_user_preferences(uid: int, authorization: Optional[str] = Header(N
             except Exception as e:
                 logger.error(f"[MAIN] 관심사 기반 선호도 부스트 적용 중 오류 발생: {str(e)}")
 
+        total_end_time = time.time()
+        logger.info(f"[MAIN] 전체 처리 소요 시간: {total_end_time - total_start_time:.2f}초")
         logger.info(f"[MAIN] 최종 응답: {response}")
         return response
         
